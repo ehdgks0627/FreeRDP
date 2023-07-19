@@ -24,8 +24,8 @@ set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_C_COMPILER "clang")
 set(CMAKE_CXX_COMPILER "clang++")
 
-add_compile_options(-fsanitize=address,leak,memory)
-add_link_options(-fsanitize=address,leak,memory)
+add_compile_options(-fsanitize=address,leak)
+add_link_options(-fsanitize=address,leak)
 
 cmake_minimum_required(VERSION 3.13)
 
