@@ -1475,7 +1475,8 @@ static UINT drdynvc_virtual_channel_event_data_received(drdynvcPlugin* drdynvc, 
 		Stream_SealLength(data_in);
 		Stream_SetPosition(data_in, 0);
 
-		if (drdynvc->async)
+		// FIXED(ehdgks0627): Disable drdynvc async
+		if (drdynvc->async && false)
 		{
 			if (!MessageQueue_Post(drdynvc->queue, NULL, 0, (void*)data_in, NULL))
 			{

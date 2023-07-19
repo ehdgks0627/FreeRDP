@@ -376,6 +376,10 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.version); /* version (4 bytes) */
 	Stream_Read_UINT32(s, capsSet.length);  /* capsDataLength (4 bytes) */
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
+	// Consume remain padding
+	if (capsSet.length >= 4) {
+		Stream_Seek(s, capsSet.length - 4);
+	}
 	gfx->ConnectionCaps = capsSet;
 	DEBUG_RDPGFX(gfx->log, "RecvCapsConfirmPdu: version: 0x%08" PRIX32 " flags: 0x%08" PRIX32 "",
 	             capsSet.version, capsSet.flags);
@@ -2081,17 +2085,19 @@ static UINT rdpgfx_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 	UINT error = CHANNEL_RC_OK;
 
 	WINPR_ASSERT(gfx);
-	status = zgfx_decompress(gfx->zgfx, Stream_ConstPointer(data),
-	                         (UINT32)Stream_GetRemainingLength(data), &pDstData, &DstSize, 0);
+	// FIXED(ehdgks0627): Disable zfgs compress
+	// status = zgfx_decompress(gfx->zgfx, Stream_ConstPointer(data),
+	//                          (UINT32)Stream_GetRemainingLength(data), &pDstData, &DstSize, 0);
 
-	if (status < 0)
-	{
-		WLog_Print(gfx->log, WLOG_ERROR, "zgfx_decompress failure! status: %d", status);
-		return ERROR_INTERNAL_ERROR;
-	}
+	// if (status < 0)
+	// {
+	// 	WLog_Print(gfx->log, WLOG_ERROR, "zgfx_decompress failure! status: %d", status);
+	// 	// return ERROR_INTERNAL_ERROR;
+	// 	return CHANNEL_RC_OK;
+	// }
 
-	s = Stream_New(pDstData, DstSize);
-
+	// s = Stream_New(pDstData, DstSize);
+	s = data;
 	if (!s)
 	{
 		WLog_Print(gfx->log, WLOG_ERROR, "calloc failed!");
@@ -2108,7 +2114,8 @@ static UINT rdpgfx_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 		}
 	}
 
-	Stream_Free(s, TRUE);
+	// FUck you!
+	// Stream_Free(s, TRUE);
 	return error;
 }
 

@@ -17,6 +17,8 @@
 
 # Clients
 
+add_compile_options(-g)
+
 add_subdirectory(common)
 
 if(FREERDP_VENDOR AND WITH_CLIENT)

@@ -18,6 +18,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+add_compile_options(-g)
+set(CMAKE_BUILD_TYPE Debug)
+
+set(CMAKE_C_COMPILER "clang")
+set(CMAKE_CXX_COMPILER "clang++")
+
+add_compile_options(-fsanitize=address,leak,memory)
+add_link_options(-fsanitize=address,leak,memory)
+
 cmake_minimum_required(VERSION 3.13)
 
 project(FreeRDP C)

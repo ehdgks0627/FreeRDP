@@ -283,7 +283,6 @@ void AppDelegate_EmbedWindowEventHandler(void *ctx, const EmbedWindowEventArgs *
 void AppDelegate_ResizeWindowEventHandler(void *ctx, const ResizeWindowEventArgs *e)
 {
 	rdpContext *context = (rdpContext *)ctx;
-	fprintf(stderr, "ResizeWindowEventHandler: %d %d\n", e->width, e->height);
 
 	if (_singleDelegate)
 	{

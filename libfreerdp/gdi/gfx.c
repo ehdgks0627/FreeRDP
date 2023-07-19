@@ -108,6 +108,11 @@ static UINT gdi_ResetGraphics(RdpgfxClientContext* context,
 	DesktopWidth = resetGraphics->width;
 	DesktopHeight = resetGraphics->height;
 
+	// FIXED(ehdgks0627): UAF Patch
+	if (DesktopWidth == 0 || DesktopHeight == 0) {
+		goto fail;
+	}
+
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, DesktopWidth))
 		goto fail;
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, DesktopHeight))
@@ -115,8 +120,9 @@ static UINT gdi_ResetGraphics(RdpgfxClientContext* context,
 
 	if (update)
 	{
-		WINPR_ASSERT(update->DesktopResize);
-		update->DesktopResize(gdi->context);
+		// Do not resize
+		// WINPR_ASSERT(update->DesktopResize);
+		// update->DesktopResize(gdi->context);
 	}
 
 	WINPR_ASSERT(context->GetSurfaceIds);
@@ -1154,7 +1160,8 @@ static UINT gdi_CreateSurface(RdpgfxClientContext* context,
 	}
 
 	surface->scanline = gfx_align_scanline(surface->width * 4UL, 16);
-	surface->data = (BYTE*)winpr_aligned_malloc(surface->scanline * surface->height * 1ULL, 16);
+	// FIXED(ehdgks0627): Integer overflow Patch
+	surface->data = (BYTE*)winpr_aligned_malloc((size_t)surface->scanline * surface->height * 1ULL, 16);
 
 	if (!surface->data)
 	{
@@ -1223,13 +1230,14 @@ static BOOL intersect_rect(const RECTANGLE_16* rect, const gdiGfxSurface* surfac
 	WINPR_ASSERT(surface);
 	WINPR_ASSERT(prect);
 
+	// FIXED(ehdgks0627): OOB Write Patch
 	if (rect->left > rect->right)
 		return FALSE;
-	if (rect->left > surface->width)
+	if (rect->left >= surface->width)
 		return FALSE;
 	if (rect->top > rect->bottom)
 		return FALSE;
-	if (rect->top > surface->height)
+	if (rect->top >= surface->height)
 		return FALSE;
 	prect->left = rect->left;
 	prect->top = rect->top;
@@ -1274,9 +1282,18 @@ static UINT gdi_SolidFill(RdpgfxClientContext* context, const RDPGFX_SOLID_FILL_
 		if (!intersect_rect(rect, surface, &invalidRect))
 			goto fail;
 
+		WLog_ERR(TAG, "surface->height => %lu\n", surface->height);
+		WLog_ERR(TAG, "surface->width => %lu\n", surface->width);
+		WLog_ERR(TAG, "surface->scanline => %lu\n", surface->scanline);
+		WLog_ERR(TAG, "invalidRect.left => %lu\n", invalidRect.left);
+		WLog_ERR(TAG, "invalidRect.right => %lu\n", invalidRect.right);
+		WLog_ERR(TAG, "invalidRect.top => %lu\n", invalidRect.top);
+		WLog_ERR(TAG, "invalidRect.bottom => %lu\n", invalidRect.bottom);
 		const UINT32 nWidth = invalidRect.right - invalidRect.left;
 		const UINT32 nHeight = invalidRect.bottom - invalidRect.top;
 
+
+		// Allow scanline is zero?
 		if (!freerdp_image_fill(surface->data, surface->format, surface->scanline, invalidRect.left,
 		                        invalidRect.top, nWidth, nHeight, color))
 			goto fail;
