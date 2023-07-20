@@ -1852,7 +1852,7 @@ static const UINT32 CopyOffsetBaseLUT[32] = {
 	0xC001  /* 31 */
 };
 
-static const UINT32 LOMBitsLUT[30] = {
+static const UINT32 LOMBitsLUT[32] = {
 	0x0, /* 0 */
 	0x0, /* 1 */
 	0x0, /* 2 */
@@ -1885,7 +1885,7 @@ static const UINT32 LOMBitsLUT[30] = {
 	0xE  /* 29 */
 };
 
-static const UINT32 LOMBaseLUT[30] = {
+static const UINT32 LOMBaseLUT[32] = {
 	0x2,   /* 0 */
 	0x3,   /* 1 */
 	0x4,   /* 2 */
@@ -2733,7 +2733,9 @@ int ncrush_compress(NCRUSH_CONTEXT* ncrush, const BYTE* pSrcData, UINT32 SrcSize
 				else
 					IndexCO = ncrush->HuffTableLOM[MatchLength];
 
+				printf("HuffLengthLOM[%u]\n", IndexCO);
 				BitLength = HuffLengthLOM[IndexCO];
+				printf("LOMBitsLUT[%u]\n", IndexCO);
 				IndexLOM = LOMBitsLUT[IndexCO];
 				NCrushWriteBits(&DstPtr, &accumulator, &offset, HuffCodeLOM[IndexCO], BitLength);
 				Mask = ((1 << IndexLOM) - 1);
@@ -2760,7 +2762,9 @@ int ncrush_compress(NCRUSH_CONTEXT* ncrush, const BYTE* pSrcData, UINT32 SrcSize
 				else
 					IndexCO = ncrush->HuffTableLOM[MatchLength];
 
+				printf("HuffLengthLOM[%u]\n", IndexCO);
 				BitLength = HuffLengthLOM[IndexCO];
+				printf("LOMBitsLUT[%u]\n", IndexCO);
 				IndexLOM = LOMBitsLUT[IndexCO];
 				NCrushWriteBits(&DstPtr, &accumulator, &offset, HuffCodeLOM[IndexCO], BitLength);
 				Mask = ((1 << IndexLOM) - 1);

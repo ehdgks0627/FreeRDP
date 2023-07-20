@@ -105,6 +105,7 @@ if (NOT WITH_SWSCALE AND NOT WITH_CAIRO)
 endif()
 
 set(${MODULE_PREFIX}_SUBMODULES
+    codec
     emu
     utils
     common
@@ -159,6 +160,7 @@ set(CODEC_SRCS
     codec/ncrush.c
     codec/xcrush.c
     codec/mppc.c
+    codec/mppc.h
     codec/zgfx.c
     codec/clear.c
     codec/jpeg.c
@@ -269,9 +271,8 @@ endif()
 
 freerdp_module_add(${CODEC_SRCS})
 
-if(BUILD_TESTING)
-    add_subdirectory(codec/test)
-endif()
+add_subdirectory(codec/test)
+add_subdirectory(codec/fuzzer)
 
 # /codec
 

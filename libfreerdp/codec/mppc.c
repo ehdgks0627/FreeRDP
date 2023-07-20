@@ -100,16 +100,9 @@ int mppc_decompress(MPPC_CONTEXT* mppc, const BYTE* pSrcData, UINT32 SrcSize,
 	UINT32 CompressionLevel;
 	wBitStream* bs;
 
-	WINPR_ASSERT(mppc);
-	WINPR_ASSERT(pSrcData);
-	WINPR_ASSERT(ppDstData);
-	WINPR_ASSERT(pDstSize);
-
 	bs = mppc->bs;
-	WINPR_ASSERT(bs);
 
 	HistoryBuffer = mppc->HistoryBuffer;
-	WINPR_ASSERT(HistoryBuffer);
 
 	HistoryBufferSize = mppc->HistoryBufferSize;
 	HistoryBufferEnd = &HistoryBuffer[HistoryBufferSize - 1];
@@ -149,7 +142,7 @@ int mppc_decompress(MPPC_CONTEXT* mppc, const BYTE* pSrcData, UINT32 SrcSize,
 
 		if (HistoryPtr > HistoryBufferEnd)
 		{
-			WLog_ERR(TAG, "history buffer index out of range");
+			//WLog_ERR(TAG, "history buffer index out of range");
 			return -1004;
 		}
 
@@ -413,7 +406,7 @@ int mppc_decompress(MPPC_CONTEXT* mppc, const BYTE* pSrcData, UINT32 SrcSize,
 
 		if ((HistoryPtr + LengthOfMatch - 1) > HistoryBufferEnd)
 		{
-			WLog_ERR(TAG, "history buffer overflow");
+			//WLog_ERR(TAG, "history buffer overflow");
 			return -1005;
 		}
 
@@ -454,18 +447,9 @@ int mppc_compress(MPPC_CONTEXT* mppc, const BYTE* pSrcData, UINT32 SrcSize, BYTE
 	UINT32 CompressionLevel;
 	wBitStream* bs;
 
-	WINPR_ASSERT(mppc);
-	WINPR_ASSERT(pSrcData);
-	WINPR_ASSERT(pDstBuffer);
-	WINPR_ASSERT(ppDstData);
-	WINPR_ASSERT(pDstSize);
-	WINPR_ASSERT(pFlags);
-
 	bs = mppc->bs;
-	WINPR_ASSERT(bs);
 
 	HistoryBuffer = mppc->HistoryBuffer;
-	WINPR_ASSERT(HistoryBuffer);
 
 	HistoryBufferSize = mppc->HistoryBufferSize;
 	CompressionLevel = mppc->CompressionLevel;
@@ -489,9 +473,6 @@ int mppc_compress(MPPC_CONTEXT* mppc, const BYTE* pSrcData, UINT32 SrcSize, BYTE
 	HistoryPtr = &(HistoryBuffer[HistoryOffset]);
 	pDstData = pDstBuffer;
 	*ppDstData = pDstBuffer;
-
-	if (!pDstData)
-		return -1;
 
 	if (*pDstSize > SrcSize)
 		DstSize = SrcSize;
