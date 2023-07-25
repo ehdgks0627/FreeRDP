@@ -51,6 +51,7 @@ HGDI_BITMAP gdi_create_bitmap(rdpGdi* gdi, UINT32 nWidth, UINT32 nHeight, UINT32
 		return NULL;
 
 	nDstStep = nWidth * FreeRDPGetBytesPerPixel(gdi->dstFormat);
+	// CVE(ehdgks0627)
 	pDstData = winpr_aligned_malloc(nHeight * nDstStep * 1ULL, 16);
 
 	if (!pDstData)

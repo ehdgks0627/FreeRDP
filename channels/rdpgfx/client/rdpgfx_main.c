@@ -377,7 +377,8 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.length);  /* capsDataLength (4 bytes) */
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
 	// Consume remain padding
-	if (capsSet.length >= 4) {
+	if (capsSet.length >= 4)
+	{
 		Stream_Seek(s, capsSet.length - 4);
 	}
 	gfx->ConnectionCaps = capsSet;
@@ -1269,9 +1270,9 @@ static UINT rdpgfx_recv_wire_to_surface_1_pdu(GENERIC_CHANNEL_CALLBACK* callback
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, RDPGFX_WIRE_TO_SURFACE_PDU_1_SIZE))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT16(s, pdu.surfaceId);  /* surfaceId (2 bytes) */
-	Stream_Read_UINT16(s, pdu.codecId);    /* codecId (2 bytes) */
-	Stream_Read_UINT8(s, pdu.pixelFormat); /* pixelFormat (1 byte) */
+	Stream_Read_UINT16(s, pdu.surfaceId);                 /* surfaceId (2 bytes) */
+	Stream_Read_UINT16(s, pdu.codecId);                   /* codecId (2 bytes) */
+	Stream_Read_UINT8(s, pdu.pixelFormat);                /* pixelFormat (1 byte) */
 
 	if ((error = rdpgfx_read_rect16(s, &(pdu.destRect)))) /* destRect (8 bytes) */
 	{
@@ -1282,8 +1283,11 @@ static UINT rdpgfx_recv_wire_to_surface_1_pdu(GENERIC_CHANNEL_CALLBACK* callback
 	Stream_Read_UINT32(s, pdu.bitmapDataLength); /* bitmapDataLength (4 bytes) */
 
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, pdu.bitmapDataLength))
+	{
+		WLog_ERR(TAG, "nono... %u\n", pdu.bitmapDataLength);
 		return ERROR_INVALID_DATA;
-
+	}
+	WLog_ERR(TAG, "hehe\n");
 	pdu.bitmapData = Stream_Pointer(s);
 	Stream_Seek(s, pdu.bitmapDataLength);
 
@@ -1310,6 +1314,7 @@ static UINT rdpgfx_recv_wire_to_surface_1_pdu(GENERIC_CHANNEL_CALLBACK* callback
 			break;
 
 		default:
+			WLog_ERR(TAG, "hehe - 1\n");
 			return ERROR_INVALID_DATA;
 	}
 
@@ -1325,19 +1330,23 @@ static UINT rdpgfx_recv_wire_to_surface_1_pdu(GENERIC_CHANNEL_CALLBACK* callback
 
 	if (cmd.right < cmd.left)
 	{
+		WLog_ERR(TAG, "hehe - 2\n");
 		WLog_Print(gfx->log, WLOG_ERROR, "RecvWireToSurface1Pdu right=%" PRIu32 " < left=%" PRIu32,
 		           cmd.right, cmd.left);
 		return ERROR_INVALID_DATA;
 	}
 	if (cmd.bottom < cmd.top)
 	{
+		WLog_ERR(TAG, "hehe - 3\n");
 		WLog_Print(gfx->log, WLOG_ERROR, "RecvWireToSurface1Pdu bottom=%" PRIu32 " < top=%" PRIu32,
 		           cmd.bottom, cmd.top);
 		return ERROR_INVALID_DATA;
 	}
-
 	if ((error = rdpgfx_decode(gfx, &cmd)))
+	{
+		WLog_ERR(TAG, "hehe - 4\n");
 		WLog_Print(gfx->log, WLOG_ERROR, "rdpgfx_decode failed with error %" PRIu32 "!", error);
+	}
 
 	return error;
 }
@@ -1470,7 +1479,7 @@ static UINT rdpgfx_recv_solid_fill_pdu(GENERIC_CHANNEL_CALLBACK* callback, wStre
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 8))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT16(s, pdu.surfaceId); /* surfaceId (2 bytes) */
+	Stream_Read_UINT16(s, pdu.surfaceId);                   /* surfaceId (2 bytes) */
 
 	if ((error = rdpgfx_read_color32(s, &(pdu.fillPixel)))) /* fillPixel (4 bytes) */
 	{
@@ -1539,8 +1548,8 @@ static UINT rdpgfx_recv_surface_to_surface_pdu(GENERIC_CHANNEL_CALLBACK* callbac
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 14))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT16(s, pdu.surfaceIdSrc);  /* surfaceIdSrc (2 bytes) */
-	Stream_Read_UINT16(s, pdu.surfaceIdDest); /* surfaceIdDest (2 bytes) */
+	Stream_Read_UINT16(s, pdu.surfaceIdSrc);             /* surfaceIdSrc (2 bytes) */
+	Stream_Read_UINT16(s, pdu.surfaceIdDest);            /* surfaceIdDest (2 bytes) */
 
 	if ((error = rdpgfx_read_rect16(s, &(pdu.rectSrc)))) /* rectSrc (8 bytes ) */
 	{
@@ -1613,9 +1622,9 @@ static UINT rdpgfx_recv_surface_to_cache_pdu(GENERIC_CHANNEL_CALLBACK* callback,
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 20))
 		return ERROR_INVALID_DATA;
 
-	Stream_Read_UINT16(s, pdu.surfaceId); /* surfaceId (2 bytes) */
-	Stream_Read_UINT64(s, pdu.cacheKey);  /* cacheKey (8 bytes) */
-	Stream_Read_UINT16(s, pdu.cacheSlot); /* cacheSlot (2 bytes) */
+	Stream_Read_UINT16(s, pdu.surfaceId);                /* surfaceId (2 bytes) */
+	Stream_Read_UINT64(s, pdu.cacheKey);                 /* cacheKey (8 bytes) */
+	Stream_Read_UINT16(s, pdu.cacheSlot);                /* cacheSlot (2 bytes) */
 
 	if ((error = rdpgfx_read_rect16(s, &(pdu.rectSrc)))) /* rectSrc (8 bytes ) */
 	{
@@ -1889,6 +1898,9 @@ static UINT rdpgfx_recv_pdu(GENERIC_CHANNEL_CALLBACK* callback, wStream* s)
 	    gfx->log, "cmdId: %s (0x%04" PRIX16 ") flags: 0x%04" PRIX16 " pduLength: %" PRIu32 "",
 	    rdpgfx_get_cmd_id_string(header.cmdId), header.cmdId, header.flags, header.pduLength);
 
+	fprintf(stderr, "cmdId: %s (0x%04" PRIX16 ") flags: 0x%04" PRIX16 " pduLength: %" PRIu32 "\n",
+	        rdpgfx_get_cmd_id_string(header.cmdId), header.cmdId, header.flags, header.pduLength);
+
 	switch (header.cmdId)
 	{
 		case RDPGFX_CMDID_WIRETOSURFACE_1:
@@ -2086,18 +2098,19 @@ static UINT rdpgfx_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 
 	WINPR_ASSERT(gfx);
 	// FIXED(ehdgks0627): Disable zfgs compress
-	// status = zgfx_decompress(gfx->zgfx, Stream_ConstPointer(data),
-	//                          (UINT32)Stream_GetRemainingLength(data), &pDstData, &DstSize, 0);
+	status = zgfx_decompress(gfx->zgfx, Stream_ConstPointer(data),
+	                         (UINT32)Stream_GetRemainingLength(data), &pDstData, &DstSize, 0);
 
-	// if (status < 0)
-	// {
-	// 	WLog_Print(gfx->log, WLOG_ERROR, "zgfx_decompress failure! status: %d", status);
-	// 	// return ERROR_INTERNAL_ERROR;
-	// 	return CHANNEL_RC_OK;
-	// }
+	if (status < 0)
+	{
+		WLog_ERR(TAG, "zgfx_decompress failure! status: %d", status);
+		// WLog_Print(gfx->log, WLOG_ERROR, "zgfx_decompress failure! status: %d", status);
+		return ERROR_INTERNAL_ERROR;
+		// return CHANNEL_RC_OK;
+	}
 
-	// s = Stream_New(pDstData, DstSize);
-	s = data;
+	s = Stream_New(pDstData, DstSize);
+	// s = data;
 	if (!s)
 	{
 		WLog_Print(gfx->log, WLOG_ERROR, "calloc failed!");
@@ -2112,6 +2125,7 @@ static UINT rdpgfx_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 			           error);
 			break;
 		}
+		break; // FIXED(ehdgks0627): Only one execution
 	}
 
 	// FUck you!

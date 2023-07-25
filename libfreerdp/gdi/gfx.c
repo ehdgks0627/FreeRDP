@@ -54,8 +54,8 @@ static BOOL is_within_surface(const gdiGfxSurface* surface, const RDPGFX_SURFACE
 	if (!is_rect_valid(&rect, surface->width, surface->height))
 	{
 		WLog_ERR(TAG,
-		         "Command rect %" PRIu32 "x" PRIu32 "-" PRIu32 "x" PRIu32
-		         " not within bounds of " PRIu32 "x" PRIu32,
+		         "Command rect %" PRIu32 "x%" PRIu32 "-%" PRIu32 "x%" PRIu32
+		         " not within bounds of %" PRIu32 "x%" PRIu32,
 		         rect.left, rect.top, cmd->width, cmd->height, surface->width, surface->height);
 		return FALSE;
 	}
@@ -109,7 +109,8 @@ static UINT gdi_ResetGraphics(RdpgfxClientContext* context,
 	DesktopHeight = resetGraphics->height;
 
 	// FIXED(ehdgks0627): UAF Patch
-	if (DesktopWidth == 0 || DesktopHeight == 0) {
+	if (DesktopWidth == 0 || DesktopHeight == 0)
+	{
 		goto fail;
 	}
 
@@ -183,8 +184,12 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	update = gdi->context->update;
 	WINPR_ASSERT(update);
 
+	WLog_ERR(TAG, "gdi_OutputUpdate\n");
 	if (gdi->suppressOutput)
+	{
+		WLog_ERR(TAG, "gdi_OutputUpdate gdi->suppressOutput\n");
 		return CHANNEL_RC_OK;
+	}
 
 	surfaceX = surface->outputOriginX;
 	surfaceY = surface->outputOriginY;
@@ -197,10 +202,16 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	sy = surface->outputTargetHeight / (double)surface->mappedHeight;
 
 	if (!(rects = region16_rects(&surface->invalidRegion, &nbRects)) || !nbRects)
+	{
+		WLog_ERR(TAG, "gdi_OutputUpdate region16_rects rects: %p, %u\n", rects, nbRects);
 		return CHANNEL_RC_OK;
+	}
 
 	if (!update_begin_paint(update))
+	{
+		WLog_ERR(TAG, "gdi_OutputUpdate update_begin_paint\n");
 		goto fail;
+	}
 
 	for (i = 0; i < nbRects; i++)
 	{
@@ -217,6 +228,7 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 		                         dwidth, dheight, surface->data, surface->format, surface->scanline,
 		                         nXSrc, nYSrc, swidth, sheight))
 		{
+			WLog_ERR(TAG, "gdi_OutputUpdate freerdp_image_scale\n");
 			rc = CHANNEL_RC_NULL_DATA;
 			goto fail;
 		}
@@ -229,9 +241,13 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 fail:
 
 	if (!update_end_paint(update))
+	{
+		WLog_ERR(TAG, "gdi_OutputUpdate update_end_paint\n");
 		rc = ERROR_INTERNAL_ERROR;
+	}
 
 	region16_clear(&(surface->invalidRegion));
+	WLog_ERR(TAG, "gdi_OutputUpdate rc = %u\n", rc);
 	return rc;
 }
 
@@ -251,7 +267,7 @@ static UINT gdi_UpdateSurfaces(RdpgfxClientContext* context)
 	rdpGdi* gdi;
 
 	WINPR_ASSERT(context);
-
+	WLog_ERR(TAG, "gdi_UpdateSurfaces\n");
 	gdi = (rdpGdi*)context->custom;
 	WINPR_ASSERT(gdi);
 
@@ -261,6 +277,7 @@ static UINT gdi_UpdateSurfaces(RdpgfxClientContext* context)
 	context->GetSurfaceIds(context, &pSurfaceIds, &count);
 	status = CHANNEL_RC_OK;
 
+	WLog_ERR(TAG, "gdi_UpdateSurfaces - count : %u\n", count);
 	for (index = 0; index < count; index++)
 	{
 		WINPR_ASSERT(context->GetSurfaceData);
@@ -268,14 +285,25 @@ static UINT gdi_UpdateSurfaces(RdpgfxClientContext* context)
 		    (gdiGfxSurface*)context->GetSurfaceData(context, pSurfaceIds[index]);
 
 		if (!surface)
+		{
+			WLog_ERR(TAG, "gdi_UpdateSurfaces - for(%u) - 1\n", index);
 			continue;
+		}
 
 		/* Already handled in UpdateSurfaceArea callbacks */
 		if (context->UpdateSurfaceArea)
 		{
 			if (surface->handleInUpdateSurfaceArea)
+			{
+				WLog_ERR(TAG, "gdi_UpdateSurfaces - for(%u) - 2\n", index);
 				continue;
+			}
 		}
+
+		WLog_ERR(TAG, "gdi_UpdateSurfaces - for(%u) - surface->outputMapped : %u\n", index,
+		         surface->outputMapped);
+		WLog_ERR(TAG, "gdi_UpdateSurfaces - for(%u) - surface->windowMapped : %u\n", index,
+		         surface->windowMapped);
 
 		if (surface->outputMapped)
 			status = gdi_OutputUpdate(gdi, surface);
@@ -283,7 +311,10 @@ static UINT gdi_UpdateSurfaces(RdpgfxClientContext* context)
 			status = gdi_WindowUpdate(context, surface);
 
 		if (status != CHANNEL_RC_OK)
+		{
+			WLog_ERR(TAG, "gdi_UpdateSurfaces - for(%u) - 3\n", index);
 			break;
+		}
 	}
 
 	free(pSurfaceIds);
@@ -1161,7 +1192,8 @@ static UINT gdi_CreateSurface(RdpgfxClientContext* context,
 
 	surface->scanline = gfx_align_scanline(surface->width * 4UL, 16);
 	// FIXED(ehdgks0627): Integer overflow Patch
-	surface->data = (BYTE*)winpr_aligned_malloc((size_t)surface->scanline * surface->height * 1ULL, 16);
+	surface->data =
+	    (BYTE*)winpr_aligned_malloc((size_t)surface->scanline * surface->height * 1ULL, 16);
 
 	if (!surface->data)
 	{
@@ -1282,16 +1314,8 @@ static UINT gdi_SolidFill(RdpgfxClientContext* context, const RDPGFX_SOLID_FILL_
 		if (!intersect_rect(rect, surface, &invalidRect))
 			goto fail;
 
-		WLog_ERR(TAG, "surface->height => %lu\n", surface->height);
-		WLog_ERR(TAG, "surface->width => %lu\n", surface->width);
-		WLog_ERR(TAG, "surface->scanline => %lu\n", surface->scanline);
-		WLog_ERR(TAG, "invalidRect.left => %lu\n", invalidRect.left);
-		WLog_ERR(TAG, "invalidRect.right => %lu\n", invalidRect.right);
-		WLog_ERR(TAG, "invalidRect.top => %lu\n", invalidRect.top);
-		WLog_ERR(TAG, "invalidRect.bottom => %lu\n", invalidRect.bottom);
 		const UINT32 nWidth = invalidRect.right - invalidRect.left;
 		const UINT32 nHeight = invalidRect.bottom - invalidRect.top;
-
 
 		// Allow scanline is zero?
 		if (!freerdp_image_fill(surface->data, surface->format, surface->scanline, invalidRect.left,

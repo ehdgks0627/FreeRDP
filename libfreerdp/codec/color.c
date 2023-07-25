@@ -54,6 +54,7 @@ BYTE* freerdp_glyph_convert(UINT32 width, UINT32 height, const BYTE* data)
 	 * means of accessing individual pixels in blitting operations
 	 */
 	scanline = (width + 7) / 8;
+	// CVE(ehdgks0627)
 	dstData = (BYTE*)winpr_aligned_malloc(width * height * 1ULL, 16);
 
 	if (!dstData)

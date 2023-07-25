@@ -1103,6 +1103,7 @@ static BOOL gdi_surface_bits(rdpContext* context, const SURFACE_BITS_COMMAND* cm
 
 		case RDP_CODEC_ID_NONE:
 			format = gdi_get_pixel_format(cmd->bmp.bpp);
+			// CVE(ehdgks0627)
 			size = cmd->bmp.width * cmd->bmp.height * FreeRDPGetBytesPerPixel(format) * 1ULL;
 			if (size > cmd->bmp.bitmapDataLength)
 			{
