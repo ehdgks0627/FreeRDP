@@ -1282,33 +1282,33 @@ static UINT gdi_SolidFill(RdpgfxClientContext* context, const RDPGFX_SOLID_FILL_
 	if (!surface)
 		goto fail;
 
-	const BYTE b = solidFill->fillPixel.B;
-	const BYTE g = solidFill->fillPixel.G;
-	const BYTE r = solidFill->fillPixel.R;
-
-	/* [MS-RDPEGFX] 3.3.5.4 Processing an RDPGFX_SOLIDFILL_PDU message
-	 * https://learn.microsoft.com/en-us/windows/win32/gdi/binary-raster-operations
-	 *
-	 * this sounds like the alpha value is always ignored.
-	 */
-
-	const UINT32 color = FreeRDPGetColor(surface->format, r, g, b, a);
-
-	for (UINT16 index = 0; index < solidFill->fillRectCount; index++)
 	{
-		const RECTANGLE_16* rect = &(solidFill->fillRects[index]);
+		const BYTE b = solidFill->fillPixel.B;
+		const BYTE g = solidFill->fillPixel.G;
+		const BYTE r = solidFill->fillPixel.R;
 
-		if (!intersect_rect(rect, surface, &invalidRect))
-			goto fail;
+		/* [MS-RDPEGFX] 3.3.5.4 Processing an RDPGFX_SOLIDFILL_PDU message
+		 * https://learn.microsoft.com/en-us/windows/win32/gdi/binary-raster-operations
+		 *
+		 * this sounds like the alpha value is always ignored.
+		 */
+		const UINT32 color = FreeRDPGetColor(surface->format, r, g, b, a);
+		for (UINT16 index = 0; index < solidFill->fillRectCount; index++)
+		{
+			const RECTANGLE_16* rect = &(solidFill->fillRects[index]);
 
-		const UINT32 nWidth = invalidRect.right - invalidRect.left;
-		const UINT32 nHeight = invalidRect.bottom - invalidRect.top;
+			if (!intersect_rect(rect, surface, &invalidRect))
+				goto fail;
 
-		if (!freerdp_image_fill(surface->data, surface->format, surface->scanline, invalidRect.left,
-		                        invalidRect.top, nWidth, nHeight, color))
-			goto fail;
+			const UINT32 nWidth = invalidRect.right - invalidRect.left;
+			const UINT32 nHeight = invalidRect.bottom - invalidRect.top;
 
-		region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion), &invalidRect);
+			if (!freerdp_image_fill(surface->data, surface->format, surface->scanline,
+			                        invalidRect.left, invalidRect.top, nWidth, nHeight, color))
+				goto fail;
+
+			region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion), &invalidRect);
+		}
 	}
 
 	status = IFCALLRESULT(CHANNEL_RC_OK, context->UpdateSurfaceArea, context, surface->surfaceId,
@@ -1335,8 +1335,6 @@ static UINT gdi_SurfaceToSurface(RdpgfxClientContext* context,
 {
 	UINT status = ERROR_INTERNAL_ERROR;
 	BOOL sameSurface = 0;
-	UINT32 nWidth = 0;
-	UINT32 nHeight = 0;
 	const RECTANGLE_16* rectSrc = NULL;
 	RECTANGLE_16 invalidRect;
 	gdiGfxSurface* surfaceSrc = NULL;
@@ -1362,8 +1360,8 @@ static UINT gdi_SurfaceToSurface(RdpgfxClientContext* context,
 	if (!is_rect_valid(rectSrc, surfaceSrc->width, surfaceSrc->height))
 		goto fail;
 
-	nWidth = rectSrc->right - rectSrc->left;
-	nHeight = rectSrc->bottom - rectSrc->top;
+	const UINT32 nWidth = rectSrc->right - rectSrc->left;
+	const UINT32 nHeight = rectSrc->bottom - rectSrc->top;
 
 	for (UINT16 index = 0; index < surfaceToSurface->destPtsCount; index++)
 	{
@@ -1374,8 +1372,10 @@ static UINT gdi_SurfaceToSurface(RdpgfxClientContext* context,
 		if (!is_rect_valid(&rect, surfaceDst->width, surfaceDst->height))
 			goto fail;
 
+		const UINT32 rwidth = rect.right - rect.left;
+		const UINT32 rheight = rect.bottom - rect.top;
 		if (!freerdp_image_copy(surfaceDst->data, surfaceDst->format, surfaceDst->scanline,
-		                        destPt->x, destPt->y, nWidth, nHeight, surfaceSrc->data,
+		                        destPt->x, destPt->y, rwidth, rheight, surfaceSrc->data,
 		                        surfaceSrc->format, surfaceSrc->scanline, rectSrc->left,
 		                        rectSrc->top, NULL, FREERDP_FLIP_NONE))
 			goto fail;
@@ -1470,9 +1470,11 @@ static UINT gdi_SurfaceToCache(RdpgfxClientContext* context,
 	                                   NULL, FREERDP_FLIP_NONE))
 		goto fail;
 
-	RDPGFX_EVICT_CACHE_ENTRY_PDU evict = { surfaceToCache->cacheSlot };
-	WINPR_ASSERT(context->EvictCacheEntry);
-	context->EvictCacheEntry(context, &evict);
+	{
+		RDPGFX_EVICT_CACHE_ENTRY_PDU evict = { surfaceToCache->cacheSlot };
+		WINPR_ASSERT(context->EvictCacheEntry);
+		context->EvictCacheEntry(context, &evict);
+	}
 
 	WINPR_ASSERT(context->SetCacheSlotData);
 	rc = context->SetCacheSlotData(context, surfaceToCache->cacheSlot, (void*)cacheEntry);
@@ -1615,9 +1617,11 @@ static UINT gdi_ImportCacheEntry(RdpgfxClientContext* context, UINT16 cacheSlot,
 	                                   FREERDP_FLIP_NONE))
 		goto fail;
 
-	RDPGFX_EVICT_CACHE_ENTRY_PDU evict = { cacheSlot };
-	WINPR_ASSERT(context->EvictCacheEntry);
-	error = context->EvictCacheEntry(context, &evict);
+	{
+		RDPGFX_EVICT_CACHE_ENTRY_PDU evict = { cacheSlot };
+		WINPR_ASSERT(context->EvictCacheEntry);
+		error = context->EvictCacheEntry(context, &evict);
+	}
 	if (error != CHANNEL_RC_OK)
 		goto fail;
 

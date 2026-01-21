@@ -404,7 +404,7 @@ static BOOL negotiate_write_neg_token(PSecBuffer output_buffer, NegToken* token)
 	{
 		if (!WinPrAsn1EncContextualRawContent(enc, 0, &mechTypes))
 			goto cleanup;
-		WLog_DBG(TAG, "\tmechTypes [0] (%li bytes)", token->mechTypes.cbBuffer);
+		WLog_DBG(TAG, "\tmechTypes [0] (%" PRIu32 " bytes)", token->mechTypes.cbBuffer);
 	}
 	/* negState [0] ENUMERATED */
 	else if (token->negState != NOSTATE)
@@ -427,7 +427,7 @@ static BOOL negotiate_write_neg_token(PSecBuffer output_buffer, NegToken* token)
 	{
 		if (WinPrAsn1EncContextualOctetString(enc, 2, &mechToken) == 0)
 			goto cleanup;
-		WLog_DBG(TAG, "\tmechToken [2] (%li bytes)", token->mechToken.cbBuffer);
+		WLog_DBG(TAG, "\tmechToken [2] (%" PRIu32 " bytes)", token->mechToken.cbBuffer);
 	}
 
 	/* mechListMIC [3] OCTET STRING */
@@ -435,7 +435,7 @@ static BOOL negotiate_write_neg_token(PSecBuffer output_buffer, NegToken* token)
 	{
 		if (WinPrAsn1EncContextualOctetString(enc, 3, &mechListMic) == 0)
 			goto cleanup;
-		WLog_DBG(TAG, "\tmechListMIC [3] (%li bytes)", token->mic.cbBuffer);
+		WLog_DBG(TAG, "\tmechListMIC [3] (%" PRIu32 " bytes)", token->mic.cbBuffer);
 	}
 
 	/* NegTokenInit or NegTokenResp */
@@ -533,7 +533,7 @@ static BOOL negotiate_read_neg_token(PSecBuffer input, NegToken* token)
 						return FALSE;
 					token->mechTypes.cbBuffer = (UINT32)mlen;
 					token->mechTypes.pvBuffer = Stream_Buffer(&s);
-					WLog_DBG(TAG, "\tmechTypes [0] (%li bytes)", token->mechTypes.cbBuffer);
+					WLog_DBG(TAG, "\tmechTypes [0] (%" PRIu32 " bytes)", token->mechTypes.cbBuffer);
 				}
 				else
 				{
@@ -541,8 +541,21 @@ static BOOL negotiate_read_neg_token(PSecBuffer input, NegToken* token)
 					WinPrAsn1_ENUMERATED rd = 0;
 					if (!WinPrAsn1DecReadEnumerated(&dec2, &rd))
 						return FALSE;
-					token->negState = rd;
-					WLog_DBG(TAG, "\tnegState [0] (%d)", token->negState);
+					switch (rd)
+					{
+						case NOSTATE:
+						case ACCEPT_COMPLETED:
+						case ACCEPT_INCOMPLETE:
+						case REJECT:
+						case REQUEST_MIC:
+							break;
+						default:
+							WLog_ERR(TAG, "Invalid negState enumeration value %d", rd);
+							return FALSE;
+					}
+
+					token->negState = WINPR_ASSERTING_INT_CAST(enum NegState, rd);
+					WLog_DBG(TAG, "\tnegState [0] (%d)", rd);
 				}
 				break;
 			case 1:
@@ -551,7 +564,7 @@ static BOOL negotiate_read_neg_token(PSecBuffer input, NegToken* token)
 					/* reqFlags [1] ContextFlags BIT STRING (ignored) */
 					if (!WinPrAsn1DecPeekTagAndLen(&dec2, &tag, &len) || (tag != ER_TAG_BIT_STRING))
 						return FALSE;
-					WLog_DBG(TAG, "\treqFlags [1] (%li bytes)", len);
+					WLog_DBG(TAG, "\treqFlags [1] (%" PRIuz " bytes)", len);
 				}
 				else
 				{
@@ -571,7 +584,7 @@ static BOOL negotiate_read_neg_token(PSecBuffer input, NegToken* token)
 				token->mechToken.cbBuffer = (UINT32)octet_string.len;
 				token->mechToken.pvBuffer = octet_string.data;
 				token->mechToken.BufferType = SECBUFFER_TOKEN;
-				WLog_DBG(TAG, "\tmechToken [2] (%li bytes)", octet_string.len);
+				WLog_DBG(TAG, "\tmechToken [2] (%" PRIuz " bytes)", octet_string.len);
 				break;
 			case 3:
 				/* mechListMic [3] OCTET STRING */
@@ -582,7 +595,7 @@ static BOOL negotiate_read_neg_token(PSecBuffer input, NegToken* token)
 				token->mic.cbBuffer = (UINT32)octet_string.len;
 				token->mic.pvBuffer = octet_string.data;
 				token->mic.BufferType = SECBUFFER_TOKEN;
-				WLog_DBG(TAG, "\tmechListMIC [3] (%li bytes)", octet_string.len);
+				WLog_DBG(TAG, "\tmechListMIC [3] (%" PRIuz " bytes)", octet_string.len);
 				break;
 			default:
 				WLog_ERR(TAG, "unknown contextual item %d", contextual);
@@ -663,7 +676,7 @@ static SECURITY_STATUS SEC_ENTRY negotiate_InitializeSecurityContextW(
     PCtxtHandle phNewContext, PSecBufferDesc pOutput, PULONG pfContextAttr, PTimeStamp ptsExpiry)
 {
 	NEGOTIATE_CONTEXT* context = NULL;
-	NEGOTIATE_CONTEXT init_context = { 0 };
+	NEGOTIATE_CONTEXT init_context = NEGOTIATE_CONTEXT_init();
 	MechCred* creds = NULL;
 	PCtxtHandle sub_context = NULL;
 	PCredHandle sub_cred = NULL;
@@ -1009,7 +1022,7 @@ static SECURITY_STATUS SEC_ENTRY negotiate_AcceptSecurityContext(
     PTimeStamp ptsTimeStamp)
 {
 	NEGOTIATE_CONTEXT* context = NULL;
-	NEGOTIATE_CONTEXT init_context = { 0 };
+	NEGOTIATE_CONTEXT init_context = NEGOTIATE_CONTEXT_init();
 	MechCred* creds = NULL;
 	PCredHandle sub_cred = NULL;
 	NegToken input_token = empty_neg_token;

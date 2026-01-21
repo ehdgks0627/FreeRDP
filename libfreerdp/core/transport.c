@@ -85,7 +85,9 @@ struct rdp_transport
 	BOOL AadMode;
 	BOOL blocking;
 	BOOL GatewayEnabled;
+	BOOL haveReadLock;
 	CRITICAL_SECTION ReadLock;
+	BOOL haveWriteLock;
 	CRITICAL_SECTION WriteLock;
 	UINT64 written;
 	HANDLE rereadEvent;
@@ -131,7 +133,7 @@ static const char* where2str(int where, char* ibuffer, size_t ilen)
 		winpr_str_append("SSL_CB_LOOP", buffer, len, "|");
 
 	char nr[32] = { 0 };
-	(void)_snprintf(nr, sizeof(nr), "]{0x%08" PRIx32 "}", where);
+	(void)_snprintf(nr, sizeof(nr), "]{0x%08" PRIx32 "}", (unsigned)where);
 	winpr_str_append(nr, buffer, len, "");
 	return buffer;
 }
@@ -1221,84 +1223,86 @@ static int transport_default_write(rdpTransport* transport, wStream* s)
 	if (!transport->frontBio)
 		goto out_cleanup;
 
-	size_t length = Stream_GetPosition(s);
-	size_t writtenlength = length;
-	Stream_SetPosition(s, 0);
-
-	if (length > 0)
 	{
-		rdp->outBytes += length;
-		WLog_Packet(transport->log, WLOG_TRACE, Stream_Buffer(s), length, WLOG_PACKET_OUTBOUND);
-	}
+		size_t length = Stream_GetPosition(s);
+		size_t writtenlength = length;
+		Stream_SetPosition(s, 0);
 
-	while (length > 0)
-	{
-		ERR_clear_error();
-		const int towrite = (length > INT32_MAX) ? INT32_MAX : (int)length;
-		status = BIO_write(transport->frontBio, Stream_ConstPointer(s), towrite);
-
-		if (status <= 0)
+		if (length > 0)
 		{
-			/* the buffered BIO that is at the end of the chain always says OK for writing,
-			 * so a retry means that for any reason we need to read. The most probable
-			 * is a SSL or TSG BIO in the chain.
-			 */
-			if (!BIO_should_retry(transport->frontBio))
+			rdp->outBytes += length;
+			WLog_Packet(transport->log, WLOG_TRACE, Stream_Buffer(s), length, WLOG_PACKET_OUTBOUND);
+		}
+
+		while (length > 0)
+		{
+			ERR_clear_error();
+			const int towrite = (length > INT32_MAX) ? INT32_MAX : (int)length;
+			status = BIO_write(transport->frontBio, Stream_ConstPointer(s), towrite);
+
+			if (status <= 0)
 			{
-				WLog_ERR_BIO(transport, "BIO_should_retry", transport->frontBio);
-				goto out_cleanup;
+				/* the buffered BIO that is at the end of the chain always says OK for writing,
+				 * so a retry means that for any reason we need to read. The most probable
+				 * is a SSL or TSG BIO in the chain.
+				 */
+				if (!BIO_should_retry(transport->frontBio))
+				{
+					WLog_ERR_BIO(transport, "BIO_should_retry", transport->frontBio);
+					goto out_cleanup;
+				}
+
+				/* non-blocking can live with blocked IOs */
+				if (!transport->blocking)
+				{
+					WLog_ERR_BIO(transport, "BIO_write", transport->frontBio);
+					goto out_cleanup;
+				}
+
+				if (BIO_wait_write(transport->frontBio, 100) < 0)
+				{
+					WLog_ERR_BIO(transport, "BIO_wait_write", transport->frontBio);
+					status = -1;
+					goto out_cleanup;
+				}
+
+				continue;
 			}
 
-			/* non-blocking can live with blocked IOs */
-			if (!transport->blocking)
+			WINPR_ASSERT(context->settings);
+			if (transport->blocking || context->settings->WaitForOutputBufferFlush)
 			{
-				WLog_ERR_BIO(transport, "BIO_write", transport->frontBio);
-				goto out_cleanup;
+				while (BIO_write_blocked(transport->frontBio))
+				{
+					if (BIO_wait_write(transport->frontBio, 100) < 0)
+					{
+						WLog_Print(transport->log, WLOG_ERROR, "error when selecting for write");
+						status = -1;
+						goto out_cleanup;
+					}
+
+					if (BIO_flush(transport->frontBio) < 1)
+					{
+						WLog_Print(transport->log, WLOG_ERROR, "error when flushing outputBuffer");
+						status = -1;
+						goto out_cleanup;
+					}
+				}
 			}
 
-			if (BIO_wait_write(transport->frontBio, 100) < 0)
+			const size_t ustatus = (size_t)status;
+			if (ustatus > length)
 			{
-				WLog_ERR_BIO(transport, "BIO_wait_write", transport->frontBio);
 				status = -1;
 				goto out_cleanup;
 			}
 
-			continue;
+			length -= ustatus;
+			Stream_Seek(s, ustatus);
 		}
 
-		WINPR_ASSERT(context->settings);
-		if (transport->blocking || context->settings->WaitForOutputBufferFlush)
-		{
-			while (BIO_write_blocked(transport->frontBio))
-			{
-				if (BIO_wait_write(transport->frontBio, 100) < 0)
-				{
-					WLog_Print(transport->log, WLOG_ERROR, "error when selecting for write");
-					status = -1;
-					goto out_cleanup;
-				}
-
-				if (BIO_flush(transport->frontBio) < 1)
-				{
-					WLog_Print(transport->log, WLOG_ERROR, "error when flushing outputBuffer");
-					status = -1;
-					goto out_cleanup;
-				}
-			}
-		}
-
-		const size_t ustatus = (size_t)status;
-		if (ustatus > length)
-		{
-			status = -1;
-			goto out_cleanup;
-		}
-
-		length -= ustatus;
-		Stream_Seek(s, ustatus);
+		transport->written += writtenlength;
 	}
-
-	transport->written += writtenlength;
 out_cleanup:
 
 	if (status < 0)
@@ -1596,19 +1600,20 @@ static BOOL transport_default_attach_layer(rdpTransport* transport, rdpTransport
 	if (!layerBio)
 		goto fail;
 
-	BIO* bufferedBio = BIO_new(BIO_s_buffered_socket());
-	if (!bufferedBio)
-		goto fail;
+	{
+		BIO* bufferedBio = BIO_new(BIO_s_buffered_socket());
+		if (!bufferedBio)
+			goto fail;
 
-	bufferedBio = BIO_push(bufferedBio, layerBio);
-	if (!bufferedBio)
-		goto fail;
+		bufferedBio = BIO_push(bufferedBio, layerBio);
+		if (!bufferedBio)
+			goto fail;
 
-	/* BIO takes over the layer reference at this point. */
-	BIO_set_data(layerBio, layer);
+		/* BIO takes over the layer reference at this point. */
+		BIO_set_data(layerBio, layer);
 
-	transport->frontBio = bufferedBio;
-
+		transport->frontBio = bufferedBio;
+	}
 	return TRUE;
 
 fail:
@@ -1709,6 +1714,11 @@ rdpTransport* transport_new(rdpContext* context)
 		goto fail;
 
 	transport->context = context;
+	transport->haveReadLock = InitializeCriticalSectionAndSpinCount(&(transport->ReadLock), 4000);
+	transport->haveWriteLock = InitializeCriticalSectionAndSpinCount(&(transport->WriteLock), 4000);
+	if (!transport->haveReadLock || !transport->haveWriteLock)
+		goto fail;
+
 	transport->ReceivePool = StreamPool_New(TRUE, BUFFER_SIZE);
 
 	if (!transport->ReceivePool)
@@ -1740,12 +1750,6 @@ rdpTransport* transport_new(rdpContext* context)
 	transport->GatewayEnabled = FALSE;
 	transport->layer = TRANSPORT_LAYER_TCP;
 
-	if (!InitializeCriticalSectionAndSpinCount(&(transport->ReadLock), 4000))
-		goto fail;
-
-	if (!InitializeCriticalSectionAndSpinCount(&(transport->WriteLock), 4000))
-		goto fail;
-
 	// transport->io.DataHandler = transport_data_handler;
 	transport->io.TCPConnect = freerdp_tcp_default_connect;
 	transport->io.TLSConnect = transport_default_connect_tls;
@@ -1776,15 +1780,23 @@ void transport_free(rdpTransport* transport)
 
 	transport_disconnect(transport);
 
-	EnterCriticalSection(&(transport->ReadLock));
+	if (transport->haveReadLock)
+		EnterCriticalSection(&(transport->ReadLock));
+
 	if (transport->ReceiveBuffer)
 		Stream_Release(transport->ReceiveBuffer);
-	LeaveCriticalSection(&(transport->ReadLock));
 
-	(void)StreamPool_WaitForReturn(transport->ReceivePool, INFINITE);
+	if (transport->haveReadLock)
+		LeaveCriticalSection(&(transport->ReadLock));
 
-	EnterCriticalSection(&(transport->ReadLock));
-	EnterCriticalSection(&(transport->WriteLock));
+	if (transport->ReceivePool)
+		(void)StreamPool_WaitForReturn(transport->ReceivePool, INFINITE);
+
+	if (transport->haveReadLock)
+		EnterCriticalSection(&(transport->ReadLock));
+
+	if (transport->haveWriteLock)
+		EnterCriticalSection(&(transport->WriteLock));
 
 	nla_free(transport->nla);
 	StreamPool_Free(transport->ReceivePool);
@@ -1792,10 +1804,12 @@ void transport_free(rdpTransport* transport)
 	(void)CloseHandle(transport->rereadEvent);
 	(void)CloseHandle(transport->ioEvent);
 
-	LeaveCriticalSection(&(transport->ReadLock));
+	if (transport->haveReadLock)
+		LeaveCriticalSection(&(transport->ReadLock));
 	DeleteCriticalSection(&(transport->ReadLock));
 
-	LeaveCriticalSection(&(transport->WriteLock));
+	if (transport->haveWriteLock)
+		LeaveCriticalSection(&(transport->WriteLock));
 	DeleteCriticalSection(&(transport->WriteLock));
 	free(transport);
 }

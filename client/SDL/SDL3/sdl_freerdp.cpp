@@ -364,6 +364,7 @@ static BOOL sdl_draw_to_window(SdlContext* sdl, SdlWindow& window,
 
 	auto size = window.rect();
 
+	std::unique_lock lock(sdl->critical);
 	auto surface = sdl->primary.get();
 	if (freerdp_settings_get_bool(context->settings, FreeRDP_SmartSizing))
 	{
@@ -495,7 +496,7 @@ static BOOL sdl_desktop_resize(rdpContext* context)
 	settings = context->settings;
 	WINPR_ASSERT(settings);
 
-	std::scoped_lock lock(sdl->critical);
+	std::unique_lock lock(sdl->critical);
 	gdi = context->gdi;
 	if (!gdi_resize(gdi, freerdp_settings_get_uint32(settings, FreeRDP_DesktopWidth),
 	                freerdp_settings_get_uint32(settings, FreeRDP_DesktopHeight)))
@@ -644,7 +645,7 @@ static void sdl_cleanup_sdl(SdlContext* sdl)
 	if (!sdl)
 		return;
 
-	std::scoped_lock lock(sdl->critical);
+	std::unique_lock lock(sdl->critical);
 	sdl->windows.clear();
 	sdl->dialog.destroy();
 
@@ -763,7 +764,7 @@ static BOOL sdl_wait_create_windows(SdlContext* sdl)
 
 static bool shall_abort(SdlContext* sdl)
 {
-	std::scoped_lock lock(sdl->critical);
+	std::unique_lock lock(sdl->critical);
 	if (freerdp_shall_disconnect_context(sdl->context()))
 	{
 		if (sdl->rdp_thread_running)
@@ -833,7 +834,7 @@ static int sdl_run(SdlContext* sdl)
 			             sdl_event_type_str(windowEvent.type), windowEvent.type);
 #endif
 			{
-				std::scoped_lock lock(sdl->critical);
+				std::unique_lock lock(sdl->critical);
 				/* The session might have been disconnected while we were waiting for a
 				 * new SDL event. In that case ignore the SDL event and terminate. */
 				if (freerdp_shall_disconnect_context(sdl->context()))
@@ -1697,6 +1698,82 @@ static void SDLCALL winpr_LogOutputFunction(void* userdata, int category, SDL_Lo
 	                      category2str(category), message);
 }
 
+static void sdl_quit()
+{
+	SDL_Event ev = {};
+	ev.type = SDL_EVENT_QUIT;
+	if (!SDL_PushEvent(&ev))
+	{
+		SDL_Log("An error occurred: %s", SDL_GetError());
+	}
+}
+
+static void SDLCALL rdp_file_cb(void* userdata, const char* const* filelist,
+                                WINPR_ATTR_UNUSED int filter)
+{
+	auto rdp = static_cast<std::string*>(userdata);
+
+	if (!filelist)
+	{
+		SDL_Log("An error occurred: %s", SDL_GetError());
+		sdl_quit();
+		return;
+	}
+	else if (!*filelist)
+	{
+		SDL_Log("The user did not select any file.");
+		SDL_Log("Most likely, the dialog was canceled.");
+		sdl_quit();
+		return;
+	}
+
+	while (*filelist)
+	{
+		SDL_Log("Full path to selected file: '%s'", *filelist);
+		*rdp = *filelist;
+		filelist++;
+	}
+
+	sdl_quit();
+}
+
+static std::string getRdpFile()
+{
+	const auto flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS;
+	SDL_DialogFileFilter filters[] = { { "RDP files", "rdp;rdpw" } };
+	std::string rdp;
+
+	bool running = true;
+	if (!SDL_Init(flags))
+		return {};
+
+	auto props = SDL_CreateProperties();
+	SDL_SetStringProperty(props, SDL_PROP_FILE_DIALOG_TITLE_STRING,
+	                      "SDL Freerdp - Open a RDP file");
+	SDL_SetBooleanProperty(props, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+	SDL_SetPointerProperty(props, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, filters);
+	SDL_SetNumberProperty(props, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, ARRAYSIZE(filters));
+	SDL_ShowFileDialogWithProperties(SDL_FILEDIALOG_OPENFILE, rdp_file_cb, &rdp, props);
+	SDL_DestroyProperties(props);
+
+	do
+	{
+		SDL_Event event = {};
+		(void)SDL_PollEvent(&event);
+
+		switch (event.type)
+		{
+			case SDL_EVENT_QUIT:
+				running = false;
+				break;
+			default:
+				break;
+		}
+	} while (running);
+	SDL_Quit();
+	return rdp;
+}
+
 int main(int argc, char* argv[])
 {
 	int rc = -1;
@@ -1715,7 +1792,23 @@ int main(int argc, char* argv[])
 	auto settings = sdl->context()->settings;
 	WINPR_ASSERT(settings);
 
-	status = freerdp_client_settings_parse_command_line(settings, argc, argv, FALSE);
+	std::string rdp_file;
+	std::vector<char*> args;
+	args.reserve(WINPR_ASSERTING_INT_CAST(size_t, argc));
+	for (auto x = 0; x < argc; x++)
+		args.push_back(argv[x]);
+
+	if (argc == 1)
+	{
+		rdp_file = getRdpFile();
+		if (!rdp_file.empty())
+		{
+			args.push_back(rdp_file.data());
+		}
+	}
+
+	status = freerdp_client_settings_parse_command_line(
+	    settings, WINPR_ASSERTING_INT_CAST(int, args.size()), args.data(), FALSE);
 	sdl_rdp->sdl->setMetadata();
 	if (status)
 	{

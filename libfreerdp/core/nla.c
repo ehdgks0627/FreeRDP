@@ -1154,6 +1154,37 @@ static BOOL nla_read_TSCspDataDetail(WinPrAsn1Decoder* dec, rdpSettings* setting
 	return set_creds_octetstring_to_settings(dec, 4, TRUE, FreeRDP_CspName, settings);
 }
 
+static BOOL nla_messageTypeValid(UINT32 type)
+{
+	switch (type)
+	{
+		case KerbInvalidValue:
+		case KerbInteractiveLogon:
+		case KerbSmartCardLogon:
+		case KerbWorkstationUnlockLogon:
+		case KerbSmartCardUnlockLogon:
+		case KerbProxyLogon:
+		case KerbTicketLogon:
+		case KerbTicketUnlockLogon:
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT >= 0x0501)
+		case KerbS4ULogon:
+#endif
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT >= 0x0600)
+		case KerbCertificateLogon:
+		case KerbCertificateS4ULogon:
+		case KerbCertificateUnlockLogon:
+#endif
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT >= 0x0602)
+		case KerbNoElevationLogon:
+		case KerbLuidLogon:
+#endif
+			return TRUE;
+		default:
+			WLog_ERR(TAG, "Invalid message type %" PRIu32, type);
+			return FALSE;
+	}
+}
+
 static BOOL nla_read_KERB_TICKET_LOGON(WINPR_ATTR_UNUSED rdpNla* nla, wStream* s,
                                        KERB_TICKET_LOGON* ticket)
 {
@@ -1166,7 +1197,13 @@ static BOOL nla_read_KERB_TICKET_LOGON(WINPR_ATTR_UNUSED rdpNla* nla, wStream* s
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 16 + 16))
 		return FALSE;
 
-	Stream_Read_UINT32(s, ticket->MessageType);
+	{
+		const UINT32 type = Stream_Get_UINT32(s);
+		if (!nla_messageTypeValid(type))
+			return FALSE;
+
+		ticket->MessageType = (KERB_LOGON_SUBMIT_TYPE)type;
+	}
 	Stream_Read_UINT32(s, ticket->Flags);
 	Stream_Read_UINT32(s, ticket->ServiceTicketLength);
 	Stream_Read_UINT32(s, ticket->TicketGrantingTicketLength);
@@ -1196,6 +1233,22 @@ static BOOL nla_read_KERB_TICKET_LOGON(WINPR_ATTR_UNUSED rdpNla* nla, wStream* s
 	return TRUE;
 }
 
+static BOOL nla_credentialTypeValid(UINT32 type)
+{
+	switch (type)
+	{
+		case InvalidCredKey:
+		case DeprecatedIUMCredKey:
+		case DomainUserCredKey:
+		case LocalUserCredKey:
+		case ExternallySuppliedCredKey:
+			return TRUE;
+		default:
+			WLog_ERR(TAG, "Invalid credential type %" PRIu32, type);
+			return FALSE;
+	}
+}
+
 WINPR_ATTR_MALLOC(free, 1)
 static MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL* nla_read_NtlmCreds(WINPR_ATTR_UNUSED rdpNla* nla,
                                                                  wStream* s)
@@ -1223,7 +1276,15 @@ static MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL* nla_read_NtlmCreds(WINPR_ATTR_UNUS
 	ret->Version = Stream_Get_UINT32(s);
 	ret->Flags = Stream_Get_UINT32(s);
 	Stream_Read(s, ret->CredentialKey.Data, MSV1_0_CREDENTIAL_KEY_LENGTH);
-	ret->CredentialKeyType = Stream_Get_UINT32(s);
+	{
+		const UINT32 val = Stream_Get_UINT32(s);
+		if (!nla_credentialTypeValid(val))
+		{
+			free(ret);
+			return NULL;
+		}
+		ret->CredentialKeyType = WINPR_ASSERTING_INT_CAST(MSV1_0_CREDENTIAL_KEY_TYPE, val);
+	}
 	ret->EncryptedCredsSize = EncryptedCredsSize;
 	Stream_Read(s, ret->EncryptedCreds, EncryptedCredsSize);
 
@@ -1295,8 +1356,8 @@ typedef enum
 
 static BOOL nla_read_ts_credentials(rdpNla* nla, SecBuffer* data)
 {
-	WinPrAsn1Decoder dec = { 0 };
-	WinPrAsn1Decoder dec2 = { 0 };
+	WinPrAsn1Decoder dec = { .encoding = WINPR_ASN1_BER, { 0 } };
+	WinPrAsn1Decoder dec2 = { .encoding = WINPR_ASN1_BER, { 0 } };
 	WinPrAsn1_OctetString credentials = { 0 };
 	BOOL error = FALSE;
 	WinPrAsn1_INTEGER credType = -1;
@@ -1363,7 +1424,7 @@ static BOOL nla_read_ts_credentials(rdpNla* nla, SecBuffer* data)
 			settings->PasswordIsSmartcardPin = TRUE;
 
 			/* cspData [1] TSCspDataDetail */
-			WinPrAsn1Decoder cspDetails = { 0 };
+			WinPrAsn1Decoder cspDetails = { .encoding = WINPR_ASN1_BER, { 0 } };
 			if (!WinPrAsn1DecReadContextualSequence(&dec, 1, &error, &cspDetails) && error)
 				return FALSE;
 			if (!nla_read_TSCspDataDetail(&cspDetails, settings))
@@ -1383,8 +1444,15 @@ static BOOL nla_read_ts_credentials(rdpNla* nla, SecBuffer* data)
 				return FALSE;
 
 			/* logonCred[0] TSRemoteGuardPackageCred */
-			KERB_TICKET_LOGON kerbLogon = { 0 };
-			WinPrAsn1Decoder logonCredsSeq = { 0 };
+			KERB_TICKET_LOGON kerbLogon = { .MessageType = KerbInvalidValue,
+				                            .Flags = 0,
+				                            .ServiceTicketLength = 0,
+				                            .TicketGrantingTicketLength = 0,
+				                            .ServiceTicket = NULL,
+				                            .TicketGrantingTicket = NULL };
+
+			WinPrAsn1Decoder logonCredsSeq = { .encoding = WINPR_ASN1_BER, { 0 } };
+
 			if (!WinPrAsn1DecReadContextualSequence(&dec2, 0, &error, &logonCredsSeq) || error)
 				return FALSE;
 
@@ -1407,16 +1475,16 @@ static BOOL nla_read_ts_credentials(rdpNla* nla, SecBuffer* data)
 
 			/* supplementalCreds [1] SEQUENCE OF TSRemoteGuardPackageCred OPTIONAL, */
 			MSV1_0_REMOTE_SUPPLEMENTAL_CREDENTIAL* suppCreds = NULL;
-			WinPrAsn1Decoder suppCredsSeq = { 0 };
+			WinPrAsn1Decoder suppCredsSeq = { .encoding = WINPR_ASN1_BER, { 0 } };
 
 			if (WinPrAsn1DecReadContextualSequence(&dec2, 1, &error, &suppCredsSeq) &&
 			    Stream_GetRemainingLength(&suppCredsSeq.source))
 			{
-				WinPrAsn1Decoder ntlmCredsSeq = { 0 };
+				WinPrAsn1Decoder ntlmCredsSeq = { .encoding = WINPR_ASN1_BER, { 0 } };
 				if (!WinPrAsn1DecReadSequence(&suppCredsSeq, &ntlmCredsSeq))
 					return FALSE;
 
-				RemoteGuardPackageCredType suppCredsType = { 0 };
+				RemoteGuardPackageCredType suppCredsType = RCG_TYPE_NONE;
 				wStream ntlmPayload = { 0 };
 				if (!nla_read_TSRemoteGuardPackageCred(nla, &ntlmCredsSeq, &suppCredsType,
 				                                       &ntlmPayload))
@@ -1447,7 +1515,7 @@ static BOOL nla_read_ts_credentials(rdpNla* nla, SecBuffer* data)
 			break;
 		}
 		default:
-			WLog_DBG(TAG, "TSCredentials type " PRIu32 " not supported for now", credType);
+			WLog_DBG(TAG, "TSCredentials type %d not supported for now", credType);
 			ret = FALSE;
 			break;
 	}
@@ -1553,8 +1621,10 @@ static BOOL nla_write_TSRemoteGuardNtlmCred(rdpNla* nla, WinPrAsn1Encoder* enc,
 	Stream_Write(s, pntlm->EncryptedCreds, pntlm->EncryptedCredsSize);
 	Stream_Zero(s, 6 + 16 * 4 + 14);
 
-	WinPrAsn1_OctetString credBuffer = { Stream_GetPosition(s), Stream_Buffer(s) };
-	ret = WinPrAsn1EncContextualOctetString(enc, 1, &credBuffer) != 0;
+	{
+		WinPrAsn1_OctetString credBuffer = { Stream_GetPosition(s), Stream_Buffer(s) };
+		ret = WinPrAsn1EncContextualOctetString(enc, 1, &credBuffer) != 0;
+	}
 
 out:
 	Stream_Free(s, TRUE);
@@ -1956,7 +2026,7 @@ BOOL nla_send(rdpNla* nla)
 	if (nla->errorCode && nla->peerVersion >= 3 && nla->peerVersion != 5)
 	{
 		WLog_DBG(TAG, "   ----->> error code %s 0x%08" PRIx32, NtStatus2Tag(nla->errorCode),
-		         nla->errorCode);
+		         WINPR_CXX_COMPAT_CAST(uint32_t, nla->errorCode));
 		if (!WinPrAsn1EncContextualInteger(
 		        enc, 4, WINPR_ASSERTING_INT_CAST(WinPrAsn1_INTEGER, nla->errorCode)))
 			goto fail;
@@ -1996,8 +2066,8 @@ fail:
 
 static int nla_decode_ts_request(rdpNla* nla, wStream* s)
 {
-	WinPrAsn1Decoder dec = { 0 };
-	WinPrAsn1Decoder dec2 = { 0 };
+	WinPrAsn1Decoder dec = { .encoding = WINPR_ASN1_BER, { 0 } };
+	WinPrAsn1Decoder dec2 = { .encoding = WINPR_ASN1_BER, { 0 } };
 	BOOL error = FALSE;
 	WinPrAsn1_tagId tag = { 0 };
 	WinPrAsn1_INTEGER val = { 0 };
@@ -2039,7 +2109,7 @@ static int nla_decode_ts_request(rdpNla* nla, wStream* s)
 
 	while (WinPrAsn1DecReadContextualTag(&dec, &tag, &dec2) != 0)
 	{
-		WinPrAsn1Decoder dec3 = { 0 };
+		WinPrAsn1Decoder dec3 = { .encoding = WINPR_ASN1_BER, { 0 } };
 		WinPrAsn1_OctetString octet_string = { 0 };
 
 		switch (tag)
@@ -2083,7 +2153,7 @@ static int nla_decode_ts_request(rdpNla* nla, wStream* s)
 					return -1;
 				nla->errorCode = val;
 				WLog_DBG(TAG, "   <<----- error code %s 0x%08" PRIx32, NtStatus2Tag(nla->errorCode),
-				         nla->errorCode);
+				         WINPR_CXX_COMPAT_CAST(uint32_t, nla->errorCode));
 				break;
 			case 5:
 				WLog_DBG(TAG, "   <<----- client nonce");
@@ -2173,8 +2243,9 @@ int nla_recv_pdu(rdpNla* nla, wStream* s)
 					break;
 
 				default:
-					WLog_ERR(TAG, "SPNEGO failed with NTSTATUS: %s [0x%08" PRIX32 "]",
-					         NtStatus2Tag(nla->errorCode), nla->errorCode);
+					WLog_ERR(TAG, "SPNEGO failed with NTSTATUS: %s [0x%08" PRIx32 "]",
+					         NtStatus2Tag(nla->errorCode),
+					         WINPR_CXX_COMPAT_CAST(uint32_t, nla->errorCode));
 					code = FREERDP_ERROR_AUTHENTICATION_FAILED;
 					break;
 			}

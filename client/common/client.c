@@ -1098,13 +1098,14 @@ static BOOL client_cli_get_rdsaad_access_token(freerdp* instance, const char* sc
 	if (freerdp_interruptible_get_line(instance->context, &url, &size, stdin) < 0)
 		goto cleanup;
 
-	const char* code = extract_authorization_code(url);
-	if (!code)
-		goto cleanup;
-
-	token_request =
-	    freerdp_client_get_aad_url((rdpClientContext*)instance->context,
-	                               FREERDP_CLIENT_AAD_TOKEN_REQUEST, scope, code, req_cnf);
+	{
+		const char* code = extract_authorization_code(url);
+		if (!code)
+			goto cleanup;
+		token_request =
+		    freerdp_client_get_aad_url((rdpClientContext*)instance->context,
+		                               FREERDP_CLIENT_AAD_TOKEN_REQUEST, scope, code, req_cnf);
+	}
 	if (!token_request)
 		goto cleanup;
 
@@ -1142,12 +1143,13 @@ static BOOL client_cli_get_avd_access_token(freerdp* instance, char** token)
 	if (freerdp_interruptible_get_line(instance->context, &url, &size, stdin) < 0)
 		goto cleanup;
 
-	const char* code = extract_authorization_code(url);
-	if (!code)
-		goto cleanup;
-
-	token_request = freerdp_client_get_aad_url((rdpClientContext*)instance->context,
-	                                           FREERDP_CLIENT_AAD_AVD_TOKEN_REQUEST, code);
+	{
+		const char* code = extract_authorization_code(url);
+		if (!code)
+			goto cleanup;
+		token_request = freerdp_client_get_aad_url((rdpClientContext*)instance->context,
+		                                           FREERDP_CLIENT_AAD_AVD_TOKEN_REQUEST, code);
+	}
 
 	if (!token_request)
 		goto cleanup;
@@ -1213,7 +1215,7 @@ BOOL client_cli_get_access_token(freerdp* instance, AccessTokenType tokenType, c
 			rc = client_cli_get_avd_access_token(instance, token);
 			break;
 		default:
-			WLog_ERR(TAG, "Unexpected value for AccessTokenType [%" PRIuz "], aborting", tokenType);
+			WLog_ERR(TAG, "Unexpected value for AccessTokenType [%u], aborting", tokenType);
 			break;
 	}
 
@@ -1401,7 +1403,7 @@ BOOL client_auto_reconnect_ex(freerdp* instance, BOOL (*window_events)(freerdp* 
 			default:
 				break;
 		}
-		for (UINT32 x = 0; x < delay / 10; x++)
+		for (SSIZE_T x = 0; x < delay / 10; x++)
 		{
 			if (!IFCALLRESULT(TRUE, window_events, instance))
 			{
@@ -2046,7 +2048,7 @@ BOOL freerdp_client_handle_touch(rdpClientContext* cctx, UINT32 flags, INT32 fin
 		case FREERDP_TOUCH_MOTION:
 			return freerdp_handle_touch_motion(cctx, &contact);
 		default:
-			WLog_WARN(TAG, "Unhandled FreeRDPTouchEventType %d, ignoring", flags);
+			WLog_WARN(TAG, "Unhandled FreeRDPTouchEventType %" PRIu32 ", ignoring", flags);
 			return FALSE;
 	}
 }
@@ -2442,15 +2444,21 @@ static char* aad_auth_request(rdpClientContext* cctx, WINPR_ATTR_UNUSED va_list 
 	const char* client_id = freerdp_settings_get_string(settings, FreeRDP_GatewayAvdClientID);
 	if (!client_id || !redirect_uri)
 		goto cleanup;
-	const char* scope = va_arg(ap, const char*);
-	if (!scope)
-		goto cleanup;
 
-	const char* ep = freerdp_utils_aad_get_wellknown_string(&cctx->context,
-	                                                        AAD_WELLKNOWN_authorization_endpoint);
+	{
+		const char* scope = va_arg(ap, const char*);
+		if (!scope)
+			goto cleanup;
 
-	winpr_asprintf(&url, &urllen, "%s?client_id=%s&response_type=code&scope=%s&redirect_uri=%s", ep,
-	               client_id, scope, redirect_uri);
+		{
+			const char* ep = freerdp_utils_aad_get_wellknown_string(
+			    &cctx->context, AAD_WELLKNOWN_authorization_endpoint);
+			winpr_asprintf(&url, &urllen,
+			               "%s?client_id=%s&response_type=code&scope=%s&redirect_uri=%s", ep,
+			               client_id, scope, redirect_uri);
+		}
+	}
+
 cleanup:
 	free(redirect_uri);
 	return url;

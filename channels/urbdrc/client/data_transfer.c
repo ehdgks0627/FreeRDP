@@ -454,14 +454,12 @@ static void func_select_all_interface_for_msconfig(IUDEVICE* pdev,
                                                    MSUSB_CONFIG_DESCRIPTOR* MsConfig)
 {
 	MSUSB_INTERFACE_DESCRIPTOR** MsInterfaces = MsConfig->MsInterfaces;
-	BYTE InterfaceNumber = 0;
-	BYTE AlternateSetting = 0;
 	UINT32 NumInterfaces = MsConfig->NumInterfaces;
 
 	for (UINT32 inum = 0; inum < NumInterfaces; inum++)
 	{
-		InterfaceNumber = MsInterfaces[inum]->InterfaceNumber;
-		AlternateSetting = MsInterfaces[inum]->AlternateSetting;
+		const BYTE InterfaceNumber = MsInterfaces[inum]->InterfaceNumber;
+		const BYTE AlternateSetting = MsInterfaces[inum]->AlternateSetting;
 		pdev->select_interface(pdev, InterfaceNumber, AlternateSetting);
 	}
 }
@@ -1674,7 +1672,7 @@ static UINT urbdrc_process_transfer_request(IUDEVICE* pdev, GENERIC_CHANNEL_CALL
 		                          ? "2.2.6.7 Transfer In Request (TRANSFER_IN_REQUEST)"
 		                          : "2.2.6.8 Transfer Out Request (TRANSFER_OUT_REQUEST)";
 		WLog_ERR(TAG,
-		         "[MS-RDPEUSB] 2.2.9.1.1 TS_URB_HEADER::Size 0x04" PRIx16
+		         "[MS-RDPEUSB] 2.2.9.1.1 TS_URB_HEADER::Size 0x%04" PRIx16
 		         " != %s::CbTsUrb 0x%08" PRIx32,
 		         Size, section, CbTsUrb);
 		return ERROR_INVALID_DATA;

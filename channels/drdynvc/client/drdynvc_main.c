@@ -452,7 +452,9 @@ static void check_open_close_receive(DVCMAN_CHANNEL* channel)
 	WINPR_ASSERT(cb);
 	if (!cb->OnOpen || !cb->OnClose || !cb->OnDataReceived)
 		WLog_VRB(TAG, "{%s:%" PRIu32 "} OnOpen=%p, OnClose=%p, OnDataReceived=%p", name, id,
-		         cb->OnOpen, cb->OnClose, cb->OnDataReceived);
+		         WINPR_CXX_COMPAT_CAST(const void*, cb->OnOpen),
+		         WINPR_CXX_COMPAT_CAST(const void*, cb->OnClose),
+		         WINPR_CXX_COMPAT_CAST(const void*, cb->OnDataReceived));
 }
 
 static UINT dvcman_call_on_receive(DVCMAN_CHANNEL* channel, wStream* data)
@@ -506,11 +508,13 @@ static UINT dvcman_channel_close(DVCMAN_CHANNEL* channel, BOOL perRequest, BOOL 
 
 			channel->state = DVC_CHANNEL_CLOSED;
 
-			IWTSVirtualChannelCallback* cb = channel->channel_callback;
-			if (cb)
 			{
-				check_open_close_receive(channel);
-				IFCALL(cb->OnClose, cb);
+				IWTSVirtualChannelCallback* cb = channel->channel_callback;
+				if (cb)
+				{
+					check_open_close_receive(channel);
+					IFCALL(cb->OnClose, cb);
+				}
 			}
 
 			channel->channel_callback = NULL;

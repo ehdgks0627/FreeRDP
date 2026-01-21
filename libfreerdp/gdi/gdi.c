@@ -488,8 +488,10 @@ BOOL gdi_bitmap_update(rdpContext* context, const BITMAP_UPDATE* bitmapUpdate)
 		WLog_ERR(TAG,
 		         "Invalid arguments: context=%p, bitmapUpdate=%p, context->gdi=%p, "
 		         "context->codecs=%p",
-		         context, bitmapUpdate, context ? context->gdi : NULL,
-		         context ? context->codecs : NULL);
+		         WINPR_CXX_COMPAT_CAST(const void*, context),
+		         WINPR_CXX_COMPAT_CAST(const void*, bitmapUpdate),
+		         WINPR_CXX_COMPAT_CAST(const void*, context ? context->gdi : NULL),
+		         WINPR_CXX_COMPAT_CAST(const void*, context ? context->codecs : NULL));
 		return FALSE;
 	}
 
@@ -1142,37 +1144,38 @@ static BOOL gdi_surface_bits(rdpContext* context, const SURFACE_BITS_COMMAND* cm
 			break;
 	}
 
-	UINT32 nbRects = 0;
-	const RECTANGLE_16* rects = region16_rects(&region, &nbRects);
-	if (!rects && (nbRects > 0))
-		goto out;
-
-	if (nbRects == 0)
 	{
-		const int32_t w = cmdRect.right - cmdRect.left;
-		const int32_t h = cmdRect.bottom - cmdRect.top;
-		if (!gdi_InvalidateRegion(gdi->primary->hdc, cmdRect.left, cmdRect.top, w, h))
+		UINT32 nbRects = 0;
+		const RECTANGLE_16* rects = region16_rects(&region, &nbRects);
+		if (!rects && (nbRects > 0))
 			goto out;
-	}
-	for (UINT32 i = 0; i < nbRects; i++)
-	{
-		const RECTANGLE_16* rect = &rects[i];
 
-		UINT32 left = rect->left;
-		UINT32 top = rect->top;
-		UINT32 width = rect->right - rect->left;
-		UINT32 height = rect->bottom - rect->top;
-
-		if (!gdi_InvalidateRegion(gdi->primary->hdc, WINPR_ASSERTING_INT_CAST(int32_t, left),
-		                          WINPR_ASSERTING_INT_CAST(int32_t, top),
-		                          WINPR_ASSERTING_INT_CAST(int32_t, width),
-		                          WINPR_ASSERTING_INT_CAST(int32_t, height)))
+		if (nbRects == 0)
 		{
-			WLog_ERR(TAG, "Failed to update invalid region");
-			goto out;
+			const int32_t w = cmdRect.right - cmdRect.left;
+			const int32_t h = cmdRect.bottom - cmdRect.top;
+			if (!gdi_InvalidateRegion(gdi->primary->hdc, cmdRect.left, cmdRect.top, w, h))
+				goto out;
+		}
+		for (UINT32 i = 0; i < nbRects; i++)
+		{
+			const RECTANGLE_16* rect = &rects[i];
+
+			UINT32 left = rect->left;
+			UINT32 top = rect->top;
+			UINT32 width = rect->right - rect->left;
+			UINT32 height = rect->bottom - rect->top;
+
+			if (!gdi_InvalidateRegion(gdi->primary->hdc, WINPR_ASSERTING_INT_CAST(int32_t, left),
+			                          WINPR_ASSERTING_INT_CAST(int32_t, top),
+			                          WINPR_ASSERTING_INT_CAST(int32_t, width),
+			                          WINPR_ASSERTING_INT_CAST(int32_t, height)))
+			{
+				WLog_ERR(TAG, "Failed to update invalid region");
+				goto out;
+			}
 		}
 	}
-
 	result = TRUE;
 out:
 	region16_uninit(&region);

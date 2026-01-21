@@ -251,7 +251,7 @@ static int bio_rdp_tls_puts(BIO* bio, const char* str)
 	if (!str)
 		return 0;
 
-	const int max = (INT_MAX > SIZE_MAX) ? SIZE_MAX : INT_MAX;
+	const size_t max = (INT_MAX > SIZE_MAX) ? SIZE_MAX : INT_MAX;
 	const size_t size = strnlen(str, max);
 	if (size >= max)
 		return -1;
@@ -363,7 +363,7 @@ static long bio_rdp_tls_ctrl(BIO* bio, int cmd, long num, void* ptr)
 			BIO_clear_retry_flags(bio);
 			status = BIO_ctrl(ssl_wbio, cmd, num, ptr);
 			if (status != 1)
-				WLog_DBG(TAG, "BIO_ctrl returned %d", status);
+				WLog_DBG(TAG, "BIO_ctrl returned %ld", status);
 			BIO_copy_next_retry(bio);
 			status = 1;
 			break;
@@ -683,11 +683,13 @@ static SecPkgContext_Bindings* tls_get_channel_bindings(const rdpCertificate* ce
 	if (!ContextBindings)
 		goto out_free;
 
-	const size_t slen = sizeof(SEC_CHANNEL_BINDINGS) + ChannelBindingTokenLength;
-	if (slen > UINT32_MAX)
-		goto out_free;
+	{
+		const size_t slen = sizeof(SEC_CHANNEL_BINDINGS) + ChannelBindingTokenLength;
+		if (slen > UINT32_MAX)
+			goto out_free;
 
-	ContextBindings->BindingsLength = (UINT32)slen;
+		ContextBindings->BindingsLength = (UINT32)slen;
+	}
 	ChannelBindings = (SEC_CHANNEL_BINDINGS*)calloc(1, ContextBindings->BindingsLength);
 
 	if (!ChannelBindings)
@@ -793,13 +795,13 @@ static BOOL tls_prepare(rdpTls* tls, BIO* underlying, SSL_METHOD* method, int op
 	UINT16 version = freerdp_settings_get_uint16(settings, FreeRDP_TLSMinVersion);
 	if (!SSL_CTX_set_min_proto_version(tls->ctx, version))
 	{
-		WLog_ERR(TAG, "SSL_CTX_set_min_proto_version %s failed", version);
+		WLog_ERR(TAG, "SSL_CTX_set_min_proto_version %" PRIu16 " failed", version);
 		return FALSE;
 	}
 	version = freerdp_settings_get_uint16(settings, FreeRDP_TLSMaxVersion);
 	if (!SSL_CTX_set_max_proto_version(tls->ctx, version))
 	{
-		WLog_ERR(TAG, "SSL_CTX_set_max_proto_version %s failed", version);
+		WLog_ERR(TAG, "SSL_CTX_set_max_proto_version %" PRIu16 " failed", version);
 		return FALSE;
 	}
 #endif
@@ -912,7 +914,7 @@ TlsHandshakeResult freerdp_tls_connect_ex(rdpTls* tls, BIO* underlying, const SS
 	adjustSslOptions(&options);
 
 	if (!tls_prepare(tls, underlying, methods, options, TRUE))
-		return 0;
+		return TLS_HANDSHAKE_ERROR;
 
 #if !defined(OPENSSL_NO_TLSEXT)
 	const char* str = tls_get_server_name(tls);
@@ -1448,11 +1450,13 @@ static BOOL is_accepted_fingerprint(const rdpCertificate* cert,
 			if (!h)
 				goto next;
 
-			const char* fp = h + strlen(h) + 1;
-			if (compare_fingerprint_all(fp, h, cert))
 			{
-				rc = TRUE;
-				break;
+				const char* fp = h + strlen(h) + 1;
+				if (compare_fingerprint_all(fp, h, cert))
+				{
+					rc = TRUE;
+					break;
+				}
 			}
 		next:
 			cur = strtok_s(NULL, ",", &context);

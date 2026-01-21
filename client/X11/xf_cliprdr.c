@@ -712,53 +712,56 @@ static CLIPRDR_FORMAT* xf_cliprdr_get_formats_from_targets(xfClipboard* clipboar
 		}
 	}
 
-	BOOL isImage = FALSE;
-	BOOL hasHtml = FALSE;
-	const uint32_t htmlFormatId = ClipboardRegisterFormat(clipboard->system, type_HtmlFormat);
-	for (unsigned long i = 0; i < proplength; i++)
 	{
-		Atom tatom = ((Atom*)data)[i];
-		const xfCliprdrFormat* format = xf_cliprdr_get_client_format_by_atom(clipboard, tatom);
+		BOOL isImage = FALSE;
+		BOOL hasHtml = FALSE;
+		const uint32_t htmlFormatId = ClipboardRegisterFormat(clipboard->system, type_HtmlFormat);
+		for (unsigned long i = 0; i < proplength; i++)
+		{
+			Atom tatom = ((Atom*)data)[i];
+			const xfCliprdrFormat* format = xf_cliprdr_get_client_format_by_atom(clipboard, tatom);
 
-		if (xf_cliprdr_should_add_format(formats, *numFormats, format))
+			if (xf_cliprdr_should_add_format(formats, *numFormats, format))
+			{
+				CLIPRDR_FORMAT* cformat = &formats[*numFormats];
+				cformat->formatId = format->formatToRequest;
+
+				/* We do not want to double register a format, so check if HTML was already
+				 * registered.
+				 */
+				if (cformat->formatId == htmlFormatId)
+					hasHtml = TRUE;
+
+				/* These are standard image types that will always be registered regardless of
+				 * actual image format. */
+				if (cformat->formatId == CF_TIFF)
+					isImage = TRUE;
+				else if (cformat->formatId == CF_DIB)
+					isImage = TRUE;
+				else if (cformat->formatId == CF_DIBV5)
+					isImage = TRUE;
+
+				if (format->formatName)
+				{
+					cformat->formatName = _strdup(format->formatName);
+					WINPR_ASSERT(cformat->formatName);
+				}
+				else
+					cformat->formatName = NULL;
+
+				*numFormats += 1;
+			}
+		}
+
+		clipboard->isImageContent = isImage;
+		if (isImage && !hasHtml)
 		{
 			CLIPRDR_FORMAT* cformat = &formats[*numFormats];
-			cformat->formatId = format->formatToRequest;
-
-			/* We do not want to double register a format, so check if HTML was already registered.
-			 */
-			if (cformat->formatId == htmlFormatId)
-				hasHtml = TRUE;
-
-			/* These are standard image types that will always be registered regardless of actual
-			 * image format. */
-			if (cformat->formatId == CF_TIFF)
-				isImage = TRUE;
-			else if (cformat->formatId == CF_DIB)
-				isImage = TRUE;
-			else if (cformat->formatId == CF_DIBV5)
-				isImage = TRUE;
-
-			if (format->formatName)
-			{
-				cformat->formatName = _strdup(format->formatName);
-				WINPR_ASSERT(cformat->formatName);
-			}
-			else
-				cformat->formatName = NULL;
+			cformat->formatId = htmlFormatId;
+			cformat->formatName = _strdup(type_HtmlFormat);
 
 			*numFormats += 1;
 		}
-	}
-
-	clipboard->isImageContent = isImage;
-	if (isImage && !hasHtml)
-	{
-		CLIPRDR_FORMAT* cformat = &formats[*numFormats];
-		cformat->formatId = htmlFormatId;
-		cformat->formatName = _strdup(type_HtmlFormat);
-
-		*numFormats += 1;
 	}
 out:
 
@@ -1440,7 +1443,8 @@ static xfCachedData* convert_data_from_existing_raw_data(xfClipboard* clipboard,
 	if (!success)
 	{
 		WLog_WARN(TAG, "Failed to set clipboard data (formatId: %u, data: %p, data_length: %u)",
-		          srcFormatId, cached_raw_data->data, cached_raw_data->data_length);
+		          srcFormatId, WINPR_CXX_COMPAT_CAST(const void*, cached_raw_data->data),
+		          cached_raw_data->data_length);
 		ClipboardUnlock(clipboard->system);
 		return NULL;
 	}
@@ -1575,7 +1579,7 @@ static BOOL xf_cliprdr_process_selection_request(xfClipboard* clipboard,
 				cached_data = HashTable_GetItemValue(clipboard->cachedRawData,
 				                                     format_to_cache_slot(formatId));
 
-			DEBUG_CLIPRDR("hasCachedData: %u, rawTransfer: %u", cached_data ? 1 : 0, rawTransfer);
+			DEBUG_CLIPRDR("hasCachedData: %u, rawTransfer: %d", cached_data ? 1u : 0u, rawTransfer);
 
 			if (!cached_data && !rawTransfer)
 			{
@@ -1588,7 +1592,7 @@ static BOOL xf_cliprdr_process_selection_request(xfClipboard* clipboard,
 				cached_raw_data =
 				    HashTable_GetItemValue(clipboard->cachedRawData, (void*)(UINT_PTR)srcFormatId);
 
-				DEBUG_CLIPRDR("hasCachedRawData: %u, rawDataLength: %u", cached_raw_data ? 1 : 0,
+				DEBUG_CLIPRDR("hasCachedRawData: %u, rawDataLength: %u", cached_raw_data ? 1u : 0u,
 				              cached_raw_data ? cached_raw_data->data_length : 0);
 
 				if (cached_raw_data && cached_raw_data->data_length != 0)
@@ -1596,7 +1600,7 @@ static BOOL xf_cliprdr_process_selection_request(xfClipboard* clipboard,
 					    clipboard, cached_raw_data, srcFormatId, nullTerminated, dstFormatId);
 			}
 
-			DEBUG_CLIPRDR("hasCachedData: %u", cached_data ? 1 : 0);
+			DEBUG_CLIPRDR("hasCachedData: %u", cached_data ? 1u : 0u);
 
 			if (cached_data)
 			{
@@ -2007,7 +2011,8 @@ static UINT xf_cliprdr_server_format_list(CliprdrClientContext* context,
 	if (!(clipboard->serverFormats =
 	          (CLIPRDR_FORMAT*)calloc(clipboard->numServerFormats, sizeof(CLIPRDR_FORMAT))))
 	{
-		WLog_ERR(TAG, "failed to allocate %d CLIPRDR_FORMAT structs", clipboard->numServerFormats);
+		WLog_ERR(TAG, "failed to allocate %" PRIu32 " CLIPRDR_FORMAT structs",
+		         clipboard->numServerFormats);
 		ret = CHANNEL_RC_NO_MEMORY;
 		goto out;
 	}
@@ -2545,50 +2550,59 @@ xfClipboard* xf_clipboard_new(xfContext* xfc, BOOL relieveFilenameRestriction)
 	 * registration). However, they are definitely not supported if there are no registered
 	 * formats. In this case we should not list file formats in TARGETS.
 	 */
-	const UINT32 fgid = ClipboardGetFormatId(clipboard->system, type_FileGroupDescriptorW);
-	const UINT32 uid = ClipboardGetFormatId(clipboard->system, mime_uri_list);
-	if (uid)
 	{
-		cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
-		clientFormat->atom = Logging_XInternAtom(xfc->log, xfc->display, mime_uri_list, False);
-		clientFormat->localFormat = uid;
-		clientFormat->formatToRequest = fgid;
-		clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
+		const UINT32 fgid = ClipboardGetFormatId(clipboard->system, type_FileGroupDescriptorW);
+		{
+			const UINT32 uid = ClipboardGetFormatId(clipboard->system, mime_uri_list);
+			if (uid)
+			{
+				cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
+				clientFormat->atom =
+				    Logging_XInternAtom(xfc->log, xfc->display, mime_uri_list, False);
+				clientFormat->localFormat = uid;
+				clientFormat->formatToRequest = fgid;
+				clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
 
-		if (!clientFormat->formatName)
-			goto fail;
+				if (!clientFormat->formatName)
+					goto fail;
 
-		clientFormat = &clipboard->clientFormats[n++];
-	}
+				clientFormat = &clipboard->clientFormats[n++];
+			}
+		}
 
-	const UINT32 gid = ClipboardGetFormatId(clipboard->system, mime_gnome_copied_files);
-	if (gid != 0)
-	{
-		cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
-		clientFormat->atom =
-		    Logging_XInternAtom(xfc->log, xfc->display, mime_gnome_copied_files, False);
-		clientFormat->localFormat = gid;
-		clientFormat->formatToRequest = fgid;
-		clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
+		{
+			const UINT32 gid = ClipboardGetFormatId(clipboard->system, mime_gnome_copied_files);
+			if (gid != 0)
+			{
+				cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
+				clientFormat->atom =
+				    Logging_XInternAtom(xfc->log, xfc->display, mime_gnome_copied_files, False);
+				clientFormat->localFormat = gid;
+				clientFormat->formatToRequest = fgid;
+				clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
 
-		if (!clientFormat->formatName)
-			goto fail;
+				if (!clientFormat->formatName)
+					goto fail;
 
-		clientFormat = &clipboard->clientFormats[n++];
-	}
+				clientFormat = &clipboard->clientFormats[n++];
+			}
+		}
 
-	const UINT32 mid = ClipboardGetFormatId(clipboard->system, mime_mate_copied_files);
-	if (mid != 0)
-	{
-		cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
-		clientFormat->atom =
-		    Logging_XInternAtom(xfc->log, xfc->display, mime_mate_copied_files, False);
-		clientFormat->localFormat = mid;
-		clientFormat->formatToRequest = fgid;
-		clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
+		{
+			const UINT32 mid = ClipboardGetFormatId(clipboard->system, mime_mate_copied_files);
+			if (mid != 0)
+			{
+				cliprdr_file_context_set_locally_available(clipboard->file, TRUE);
+				clientFormat->atom =
+				    Logging_XInternAtom(xfc->log, xfc->display, mime_mate_copied_files, False);
+				clientFormat->localFormat = mid;
+				clientFormat->formatToRequest = fgid;
+				clientFormat->formatName = _strdup(type_FileGroupDescriptorW);
 
-		if (!clientFormat->formatName)
-			goto fail;
+				if (!clientFormat->formatName)
+					goto fail;
+			}
+		}
 	}
 
 	clipboard->numClientFormats = WINPR_ASSERTING_INT_CAST(uint32_t, n);

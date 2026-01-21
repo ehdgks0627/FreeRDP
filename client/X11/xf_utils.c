@@ -192,7 +192,7 @@ int LogDynAndXConvertSelection_ex(wLog* log, const char* file, const char* fkt, 
 
 int LogDynAndXGetWindowProperty_ex(wLog* log, const char* file, const char* fkt, size_t line,
                                    Display* display, Window w, Atom property, long long_offset,
-                                   long long_length, int delete, Atom req_type,
+                                   long long_length, int c_delete, Atom req_type,
                                    Atom* actual_type_return, int* actual_format_return,
                                    unsigned long* nitems_return, unsigned long* bytes_after_return,
                                    unsigned char** prop_return)
@@ -204,13 +204,13 @@ int LogDynAndXGetWindowProperty_ex(wLog* log, const char* file, const char* fkt,
 		write_log(
 		    log, log_level, file, fkt, line,
 		    "XGetWindowProperty(%p, %lu, %s [%lu], %ld, %ld, %d, %s [%lu], %p, %p, %p, %p, %p)",
-		    (void*)display, w, propstr, property, long_offset, long_length, delete, req_type_str,
+		    (void*)display, w, propstr, property, long_offset, long_length, c_delete, req_type_str,
 		    req_type, (void*)actual_type_return, (void*)actual_format_return, (void*)nitems_return,
 		    (void*)bytes_after_return, (void*)prop_return);
 		XFree(propstr);
 		XFree(req_type_str);
 	}
-	const int rc = XGetWindowProperty(display, w, property, long_offset, long_length, delete,
+	const int rc = XGetWindowProperty(display, w, property, long_offset, long_length, c_delete,
 	                                  req_type, actual_type_return, actual_format_return,
 	                                  nitems_return, bytes_after_return, prop_return);
 	return write_result_log_expect_success(log, WLOG_WARN, file, fkt, line, display,
@@ -244,34 +244,38 @@ BOOL run_action_script(xfContext* xfc, const char* what, const char* arg, fn_act
 		goto fail;
 	}
 
-	char command[2048] = { 0 };
-	(void)sprintf_s(command, sizeof(command), "%s %s", ActionScript, what);
-	keyScript = popen(command, "r");
-
-	if (!keyScript)
 	{
-		WLog_ERR(TAG, "[ActionScript] Failed to execute '%s'", command);
-		goto fail;
-	}
+		char command[2048] = { 0 };
+		(void)sprintf_s(command, sizeof(command), "%s %s", ActionScript, what);
+		keyScript = popen(command, "r");
 
-	BOOL read_data = FALSE;
-	char buffer[2048] = { 0 };
-	while (fgets(buffer, sizeof(buffer), keyScript) != NULL)
-	{
-		char* context = NULL;
-		(void)strtok_s(buffer, "\n", &context);
-
-		if (fkt)
+		if (!keyScript)
 		{
-			if (!fkt(xfc, buffer, strnlen(buffer, sizeof(buffer)), user, what, arg))
-				goto fail;
+			WLog_ERR(TAG, "[ActionScript] Failed to execute '%s'", command);
+			goto fail;
 		}
-		read_data = TRUE;
-	}
 
-	rc = read_data;
-	if (!rc)
-		WLog_ERR(TAG, "[ActionScript] No data returned from command '%s'", command);
+		{
+			BOOL read_data = FALSE;
+			char buffer[2048] = { 0 };
+			while (fgets(buffer, sizeof(buffer), keyScript) != NULL)
+			{
+				char* context = NULL;
+				(void)strtok_s(buffer, "\n", &context);
+
+				if (fkt)
+				{
+					if (!fkt(xfc, buffer, strnlen(buffer, sizeof(buffer)), user, what, arg))
+						goto fail;
+				}
+				read_data = TRUE;
+			}
+
+			rc = read_data;
+		}
+		if (!rc)
+			WLog_ERR(TAG, "[ActionScript] No data returned from command '%s'", command);
+	}
 fail:
 	if (keyScript)
 		pclose(keyScript);
@@ -461,14 +465,14 @@ XImage* LogDynAndXCreateImage_ex(wLog* log, const char* file, const char* fkt, s
 Window LogDynAndXCreateWindow_ex(wLog* log, const char* file, const char* fkt, size_t line,
                                  Display* display, Window parent, int x, int y, unsigned int width,
                                  unsigned int height, unsigned int border_width, int depth,
-                                 unsigned int class, Visual* visual, unsigned long valuemask,
+                                 unsigned int c_class, Visual* visual, unsigned long valuemask,
                                  XSetWindowAttributes* attributes)
 {
 	if (WLog_IsLevelActive(log, log_level))
 	{
 		write_log(log, log_level, file, fkt, line, "XCreateWindow(%p)", (void*)display);
 	}
-	return XCreateWindow(display, parent, x, y, width, height, border_width, depth, class, visual,
+	return XCreateWindow(display, parent, x, y, width, height, border_width, depth, c_class, visual,
 	                     valuemask, attributes);
 }
 

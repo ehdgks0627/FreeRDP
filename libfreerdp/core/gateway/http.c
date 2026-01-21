@@ -79,13 +79,13 @@ struct s_http_response
 	char** lines;
 
 	UINT16 StatusCode;
-	const char* ReasonPhrase;
+	char* ReasonPhrase;
 
 	size_t ContentLength;
-	const char* ContentType;
+	char* ContentType;
 	TRANSFER_ENCODING TransferEncoding;
-	const char* SecWebsocketVersion;
-	const char* SecWebsocketAccept;
+	char* SecWebsocketVersion;
+	char* SecWebsocketAccept;
 
 	size_t BodyLength;
 	char* BodyContent;
@@ -97,7 +97,7 @@ struct s_http_response
 
 static wHashTable* HashTable_New_String(void);
 
-static char* string_strnstr(char* str1, const char* str2, size_t slen)
+static const char* string_strnstr(const char* str1, const char* str2, size_t slen)
 {
 	char c = 0;
 	char sc = 0;
@@ -147,15 +147,17 @@ HttpContext* http_context_new(void)
 	if (!context->cookies)
 		goto fail;
 
-	wObject* key = ListDictionary_KeyObject(context->cookies);
-	wObject* value = ListDictionary_ValueObject(context->cookies);
-	if (!key || !value)
-		goto fail;
+	{
+		wObject* key = ListDictionary_KeyObject(context->cookies);
+		wObject* value = ListDictionary_ValueObject(context->cookies);
+		if (!key || !value)
+			goto fail;
 
-	key->fnObjectFree = winpr_ObjectStringFree;
-	key->fnObjectNew = winpr_ObjectStringClone;
-	value->fnObjectFree = winpr_ObjectStringFree;
-	value->fnObjectNew = winpr_ObjectStringClone;
+		key->fnObjectFree = winpr_ObjectStringFree;
+		key->fnObjectNew = winpr_ObjectStringClone;
+		value->fnObjectFree = winpr_ObjectStringFree;
+		value->fnObjectNew = winpr_ObjectStringClone;
+	}
 
 	return context;
 
@@ -280,19 +282,21 @@ static BOOL list_append(HttpContext* context, WINPR_FORMAT_ARG const char* str, 
 	if (size <= 0)
 		goto fail;
 
-	char* sstr = NULL;
-	size_t slen = 0;
-	if (context->Pragma)
 	{
-		winpr_asprintf(&sstr, &slen, "%s, %s", context->Pragma, Pragma);
-		free(Pragma);
-	}
-	else
-		sstr = Pragma;
-	Pragma = NULL;
+		char* sstr = NULL;
+		size_t slen = 0;
+		if (context->Pragma)
+		{
+			winpr_asprintf(&sstr, &slen, "%s, %s", context->Pragma, Pragma);
+			free(Pragma);
+		}
+		else
+			sstr = Pragma;
+		Pragma = NULL;
 
-	free(context->Pragma);
-	context->Pragma = sstr;
+		free(context->Pragma);
+		context->Pragma = sstr;
+	}
 
 	rc = TRUE;
 
@@ -722,7 +726,6 @@ static BOOL http_response_parse_header_status_line(HttpResponse* response, const
 	BOOL rc = FALSE;
 	char* separator = NULL;
 	char* status_code = NULL;
-	char* reason_phrase = NULL;
 
 	if (!response)
 		goto fail;
@@ -739,18 +742,21 @@ static BOOL http_response_parse_header_status_line(HttpResponse* response, const
 	if (!separator)
 		goto fail;
 
-	reason_phrase = separator + 1;
-	*separator = '\0';
-	errno = 0;
 	{
-		long val = strtol(status_code, NULL, 0);
+		const char* reason_phrase = separator + 1;
+		*separator = '\0';
+		errno = 0;
+		{
+			long val = strtol(status_code, NULL, 0);
 
-		if ((errno != 0) || (val < 0) || (val > INT16_MAX))
-			goto fail;
+			if ((errno != 0) || (val < 0) || (val > INT16_MAX))
+				goto fail;
 
-		response->StatusCode = (UINT16)val;
+			response->StatusCode = (UINT16)val;
+		}
+		free(response->ReasonPhrase);
+		response->ReasonPhrase = _strdup(reason_phrase);
 	}
-	response->ReasonPhrase = reason_phrase;
 
 	if (!response->ReasonPhrase)
 		goto fail;
@@ -768,11 +774,9 @@ fail:
 static BOOL http_response_parse_header_field(HttpResponse* response, const char* name,
                                              const char* value)
 {
-	BOOL status = TRUE;
-
 	WINPR_ASSERT(response);
 
-	if (!name)
+	if (!name || !value)
 		return FALSE;
 
 	if (_stricmp(name, "Content-Length") == 0)
@@ -785,15 +789,18 @@ static BOOL http_response_parse_header_field(HttpResponse* response, const char*
 			return FALSE;
 
 		response->ContentLength = WINPR_ASSERTING_INT_CAST(size_t, val);
+		return TRUE;
 	}
-	else if (_stricmp(name, "Content-Type") == 0)
-	{
-		response->ContentType = value;
 
-		if (!response->ContentType)
-			return FALSE;
+	if (_stricmp(name, "Content-Type") == 0)
+	{
+		free(response->ContentType);
+		response->ContentType = _strdup(value);
+
+		return response->ContentType != NULL;
 	}
-	else if (_stricmp(name, "Transfer-Encoding") == 0)
+
+	if (_stricmp(name, "Transfer-Encoding") == 0)
 	{
 		if (_stricmp(value, "identity") == 0)
 			response->TransferEncoding = TransferEncodingIdentity;
@@ -801,27 +808,31 @@ static BOOL http_response_parse_header_field(HttpResponse* response, const char*
 			response->TransferEncoding = TransferEncodingChunked;
 		else
 			response->TransferEncoding = TransferEncodingUnknown;
-	}
-	else if (_stricmp(name, "Sec-WebSocket-Version") == 0)
-	{
-		response->SecWebsocketVersion = value;
 
-		if (!response->SecWebsocketVersion)
-			return FALSE;
+		return TRUE;
 	}
-	else if (_stricmp(name, "Sec-WebSocket-Accept") == 0)
-	{
-		response->SecWebsocketAccept = value;
 
-		if (!response->SecWebsocketAccept)
-			return FALSE;
-	}
-	else if (_stricmp(name, "WWW-Authenticate") == 0)
+	if (_stricmp(name, "Sec-WebSocket-Version") == 0)
 	{
-		char* separator = NULL;
-		const char* authScheme = NULL;
-		char* authValue = NULL;
-		separator = strchr(value, ' ');
+		free(response->SecWebsocketVersion);
+		response->SecWebsocketVersion = _strdup(value);
+
+		return response->SecWebsocketVersion != NULL;
+	}
+
+	if (_stricmp(name, "Sec-WebSocket-Accept") == 0)
+	{
+		free(response->SecWebsocketAccept);
+		response->SecWebsocketAccept = _strdup(value);
+
+		return response->SecWebsocketAccept != NULL;
+	}
+
+	if (_stricmp(name, "WWW-Authenticate") == 0)
+	{
+		const char* authScheme = value;
+		const char* authValue = "";
+		char* separator = strchr(value, ' ');
 
 		if (separator)
 		{
@@ -832,74 +843,52 @@ static BOOL http_response_parse_header_field(HttpResponse* response, const char*
 			 * 					opaque="5ccc069c403ebaf9f0171e9517f40e41"
 			 */
 			*separator = '\0';
-			authScheme = value;
 			authValue = separator + 1;
-
-			if (!authScheme || !authValue)
-				return FALSE;
-		}
-		else
-		{
-			authScheme = value;
-
-			if (!authScheme)
-				return FALSE;
-
-			authValue = "";
 		}
 
-		status = HashTable_Insert(response->Authenticates, authScheme, authValue);
+		return HashTable_Insert(response->Authenticates, authScheme, authValue);
 	}
-	else if (_stricmp(name, "Set-Cookie") == 0)
+
+	if (_stricmp(name, "Set-Cookie") == 0)
 	{
-		char* separator = NULL;
-		const char* CookieName = NULL;
-		char* CookieValue = NULL;
-		separator = strchr(value, '=');
+		char* separator = strchr(value, '=');
 
-		if (separator)
+		if (!separator)
+			return FALSE;
+
+		/* Set-Cookie: name=value
+		 * Set-Cookie: name=value; Attribute=value
+		 * Set-Cookie: name="value with spaces"; Attribute=value
+		 */
+		*separator = '\0';
+		const char* CookieName = value;
+		char* CookieValue = separator + 1;
+
+		if (*CookieValue == '"')
 		{
-			/* Set-Cookie: name=value
-			 * Set-Cookie: name=value; Attribute=value
-			 * Set-Cookie: name="value with spaces"; Attribute=value
-			 */
-			*separator = '\0';
-			CookieName = value;
-			CookieValue = separator + 1;
-
-			if (!CookieName || !CookieValue)
-				return FALSE;
-
-			if (*CookieValue == '"')
+			char* p = CookieValue;
+			while (*p != '"' && *p != '\0')
 			{
-				char* p = CookieValue;
-				while (*p != '"' && *p != '\0')
-				{
+				p++;
+				if (*p == '\\')
 					p++;
-					if (*p == '\\')
-						p++;
-				}
-				*p = '\0';
 			}
-			else
-			{
-				char* p = CookieValue;
-				while (*p != ';' && *p != '\0' && *p != ' ')
-				{
-					p++;
-				}
-				*p = '\0';
-			}
+			*p = '\0';
 		}
 		else
 		{
-			return FALSE;
+			char* p = CookieValue;
+			while (*p != ';' && *p != '\0' && *p != ' ')
+			{
+				p++;
+			}
+			*p = '\0';
 		}
-
-		status = HashTable_Insert(response->SetCookie, CookieName, CookieValue);
+		return HashTable_Insert(response->SetCookie, CookieName, CookieValue);
 	}
 
-	return status;
+	/* Ignore unknown lines */
+	return TRUE;
 }
 
 static BOOL http_response_parse_header(HttpResponse* response)
@@ -1247,7 +1236,7 @@ static SSIZE_T http_response_recv_line(rdpTls* tls, HttpResponse* response)
 			continue;
 		else if (position > RESPONSE_SIZE_LIMIT)
 		{
-			WLog_ERR(TAG, "Request header too large! (%" PRIdz " bytes) Aborting!", bodyLength);
+			WLog_ERR(TAG, "Request header too large! (%" PRIuz " bytes) Aborting!", bodyLength);
 			goto out_error;
 		}
 
@@ -1332,7 +1321,7 @@ static BOOL http_response_recv_body(rdpTls* tls, HttpResponse* response, BOOL re
 
 			if (response->BodyLength > RESPONSE_SIZE_LIMIT)
 			{
-				WLog_ERR(TAG, "Request body too large! (%" PRIdz " bytes) Aborting!",
+				WLog_ERR(TAG, "Request body too large! (%" PRIuz " bytes) Aborting!",
 				         response->BodyLength);
 				goto out_error;
 			}
@@ -1361,6 +1350,22 @@ out_error:
 	return rc;
 }
 
+static void clear_lines(HttpResponse* response)
+{
+	WINPR_ASSERT(response);
+
+	for (size_t x = 0; x < response->count; x++)
+	{
+		WINPR_ASSERT(response->lines);
+		char* line = response->lines[x];
+		free(line);
+	}
+
+	free((void*)response->lines);
+	response->lines = NULL;
+	response->count = 0;
+}
+
 HttpResponse* http_response_recv(rdpTls* tls, BOOL readContentLength)
 {
 	size_t bodyLength = 0;
@@ -1379,7 +1384,7 @@ HttpResponse* http_response_recv(rdpTls* tls, BOOL readContentLength)
 	{
 		size_t count = 0;
 		char* buffer = Stream_BufferAs(response->data, char);
-		char* line = Stream_BufferAs(response->data, char);
+		const char* line = Stream_BufferAs(response->data, char);
 		char* context = NULL;
 
 		while ((line = string_strnstr(line, "\r\n",
@@ -1390,6 +1395,7 @@ HttpResponse* http_response_recv(rdpTls* tls, BOOL readContentLength)
 			count++;
 		}
 
+		clear_lines(response);
 		response->count = count;
 
 		if (count)
@@ -1407,7 +1413,9 @@ HttpResponse* http_response_recv(rdpTls* tls, BOOL readContentLength)
 
 		while (line && (response->count > count))
 		{
-			response->lines[count] = line;
+			response->lines[count] = _strdup(line);
+			if (!response->lines[count])
+				goto out_error;
 			line = strtok_s(NULL, "\r\n", &context);
 			count++;
 		}
@@ -1443,7 +1451,7 @@ HttpResponse* http_response_recv(rdpTls* tls, BOOL readContentLength)
 
 		if (bodyLength > RESPONSE_SIZE_LIMIT)
 		{
-			WLog_ERR(TAG, "Expected request body too large! (%" PRIdz " bytes) Aborting!",
+			WLog_ERR(TAG, "Expected request body too large! (%" PRIuz " bytes) Aborting!",
 			         bodyLength);
 			goto out_error;
 		}
@@ -1528,7 +1536,11 @@ void http_response_free(HttpResponse* response)
 	if (!response)
 		return;
 
-	free((void*)response->lines);
+	clear_lines(response);
+	free(response->ReasonPhrase);
+	free(response->ContentType);
+	free(response->SecWebsocketAccept);
+	free(response->SecWebsocketVersion);
 	HashTable_Free(response->Authenticates);
 	HashTable_Free(response->SetCookie);
 	Stream_Free(response->data, TRUE);

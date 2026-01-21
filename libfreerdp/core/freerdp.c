@@ -66,7 +66,8 @@ static void sig_abort_connect(int signum, const char* signame, void* ctx)
 {
 	rdpContext* context = (rdpContext*)ctx;
 
-	WLog_INFO(TAG, "Signal %s [%d], terminating session %p", signame, signum, context);
+	WLog_INFO(TAG, "Signal %s [%d], terminating session %p", signame, signum,
+	          WINPR_CXX_COMPAT_CAST(const void*, context));
 	if (context)
 		freerdp_abort_connect_context(context);
 }
@@ -318,17 +319,6 @@ BOOL freerdp_abort_connect_context(rdpContext* context)
 		return FALSE;
 
 	freerdp_set_last_error_if_not(context, FREERDP_ERROR_CONNECT_CANCELLED);
-
-	/* Try to send a [MS-RDPBCGR] 1.3.1.4.1 User-Initiated on Client PDU, we don't care about
-	 * success */
-	if (context->rdp && context->rdp->mcs)
-	{
-		if (!context->ServerMode)
-		{
-			(void)mcs_send_disconnect_provider_ultimatum(context->rdp->mcs,
-			                                             Disconnect_Ultimatum_user_requested);
-		}
-	}
 	return utils_abort_connect(context->rdp);
 }
 
@@ -608,29 +598,45 @@ static BOOL freerdp_send_channel_packet(freerdp* instance, UINT16 channelId, siz
 BOOL freerdp_disconnect(freerdp* instance)
 {
 	BOOL rc = TRUE;
-	rdpRdp* rdp = NULL;
-	rdp_update_internal* up = NULL;
 
 	if (!instance || !instance->context)
 		return FALSE;
 
-	rdp = instance->context->rdp;
+	rdpRdp* rdp = instance->context->rdp;
+	if (rdp)
+	{
+		/* Try to send a [MS-RDPBCGR] 1.3.1.4.1 User-Initiated on Client PDU, we don't care about
+		 * success */
+		if (freerdp_get_last_error(instance->context) == FREERDP_ERROR_CONNECT_CANCELLED)
+		{
+			(void)mcs_send_disconnect_provider_ultimatum(rdp->mcs,
+			                                             Disconnect_Ultimatum_user_requested);
+		}
+	}
+
 	utils_abort_connect(rdp);
 
 	if (!rdp_client_disconnect(rdp))
 		rc = FALSE;
 
-	up = update_cast(rdp->update);
+	rdp_update_internal* up = NULL;
+	if (rdp && rdp->update)
+	{
+		up = update_cast(rdp->update);
 
-	update_post_disconnect(rdp->update);
+		update_post_disconnect(rdp->update);
+	}
 
 	IFCALL(instance->PostDisconnect, instance);
 
-	if (up->pcap_rfx)
+	if (up)
 	{
-		up->dump_rfx = FALSE;
-		pcap_close(up->pcap_rfx);
-		up->pcap_rfx = NULL;
+		if (up->pcap_rfx)
+		{
+			up->dump_rfx = FALSE;
+			pcap_close(up->pcap_rfx);
+			up->pcap_rfx = NULL;
+		}
 	}
 
 	freerdp_channels_close(instance->context->channels, instance);
@@ -1334,7 +1340,13 @@ SECURITY_STATUS freerdp_nla_QueryContextAttributes(rdpContext* context, DWORD ul
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(context->rdp);
 
-	return nla_QueryContextAttributes(context->rdp->nla, ulAttr, pBuffer);
+	rdpNla* nla = context->rdp->nla;
+	if (!nla)
+		nla = transport_get_nla(context->rdp->transport);
+
+	WINPR_ASSERT(nla);
+
+	return nla_QueryContextAttributes(nla, ulAttr, pBuffer);
 }
 
 HANDLE getChannelErrorEventHandle(rdpContext* context)
@@ -1468,22 +1480,18 @@ static void test_mcs_free(rdpMcs* mcs)
 	if (!mcs)
 		return;
 
-	rdpTransport* transport = mcs->transport;
-	rdpContext* context = transport_get_context(transport);
-	if (context)
+	if (mcs->context)
 	{
-		rdpSettings* settings = context->settings;
+		rdpSettings* settings = mcs->context->settings;
 		freerdp_settings_free(settings);
 	}
-	free(context);
-	transport_free(transport);
+	free(mcs->context);
 
 	mcs_free(mcs);
 }
 
 static rdpMcs* test_mcs_new(void)
 {
-	rdpTransport* transport = NULL;
 	rdpSettings* settings = freerdp_settings_new(0);
 	rdpContext* context = calloc(1, sizeof(rdpContext));
 
@@ -1495,13 +1503,9 @@ static rdpMcs* test_mcs_new(void)
 	if (!context)
 		goto fail;
 	context->settings = settings;
-	transport = transport_new(context);
-	if (!transport)
-		goto fail;
-	return mcs_new(transport);
+	return mcs_new(context);
 
 fail:
-	transport_free(transport);
 	free(context);
 	freerdp_settings_free(settings);
 
